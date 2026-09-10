@@ -12,7 +12,9 @@ public static class DisassemblyGameSetup
     private static readonly Regex PiezaRegex = new Regex(@"^pieza\d+$", RegexOptions.IgnoreCase);
 
     // Separación entre piezas dispersas, en unidades del mundo
-    private const float EspaciadoGrilla = 2.5f;
+    private const float EspaciadoGrilla = 1.2f;
+
+    private const string RutaMaterialIndicador = "Assets/Switch/Mat_IndicadorDesarme.mat";
 
     [MenuItem("Tools/Interruptor/Configurar Juego de Desarme")]
     public static void ConfigurarJuegoDeDesarme()
@@ -135,16 +137,19 @@ public static class DisassemblyGameSetup
                 posDesarmada = go.transform;
             }
 
+            // Solo se corren en X/Y: conservan su propia profundidad (Z) y su
+            // rotación de armado, como si las hubieran sacado del interruptor
+            // y las dejaran flotando al lado, mirando igual que antes.
             int fila = indice / columnas;
             int columna = indice % columnas;
-            Vector3 offset = new Vector3(
+            Vector3 offsetXY = new Vector3(
                 (columna - (columnas - 1) / 2f) * EspaciadoGrilla,
                 fila * EspaciadoGrilla,
-                -EspaciadoGrilla * columnas // las alejamos hacia la cámara/al frente
+                0f
             );
 
-            posDesarmada.position = centro + offset;
-            posDesarmada.rotation = Quaternion.identity;
+            posDesarmada.position = new Vector3(centro.x, centro.y, snap.position.z) + offsetXY;
+            posDesarmada.rotation = snap.rotation;
             indice++;
 
             piezasParaManager.Add(new DisassemblyGame.PiezaDesarme
@@ -170,6 +175,12 @@ public static class DisassemblyGameSetup
 
         Undo.RecordObject(manager, "Configurar piezas del DesarmeManager");
         manager.piezas = piezasParaManager.ToArray();
+
+        if (manager.materialIndicador == null)
+        {
+            manager.materialIndicador = ObtenerOCrearMaterialIndicador();
+        }
+
         EditorUtility.SetDirty(manager);
 
         // 4. Conectamos el manager en el GameManager si existe en la escena
@@ -182,6 +193,42 @@ public static class DisassemblyGameSetup
         }
 
         Debug.Log($"DisassemblyGameSetup: configuradas {piezasParaManager.Count} piezas en '{managerGO.name}'.");
+    }
+
+    private static Material ObtenerOCrearMaterialIndicador()
+    {
+        Material existente = AssetDatabase.LoadAssetAtPath<Material>(RutaMaterialIndicador);
+        if (existente != null) return existente;
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+        if (shader == null)
+        {
+            Debug.LogWarning("DisassemblyGameSetup: no se encontró un shader URP/Standard para crear el material indicador.");
+            return null;
+        }
+
+        Material mat = new Material(shader) { name = "Mat_IndicadorDesarme" };
+
+        // Configuración de transparencia (URP Lit)
+        mat.SetFloat("_Surface", 1f); // Transparent
+        mat.SetFloat("_Blend", 0f);   // Alpha
+        mat.SetOverrideTag("RenderType", "Transparent");
+        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        mat.SetInt("_ZWrite", 0);
+        mat.DisableKeyword("_ALPHATEST_ON");
+        mat.EnableKeyword("_ALPHABLEND_ON");
+        mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+
+        Color colorIndicador = new Color(0.3f, 0.8f, 1f, 0.35f);
+        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", colorIndicador);
+        if (mat.HasProperty("_Color")) mat.SetColor("_Color", colorIndicador);
+
+        AssetDatabase.CreateAsset(mat, RutaMaterialIndicador);
+        AssetDatabase.SaveAssets();
+
+        return mat;
     }
 
     private static HashSet<string> ObtenerNombresUsadosPorOtrosAnimadores()
