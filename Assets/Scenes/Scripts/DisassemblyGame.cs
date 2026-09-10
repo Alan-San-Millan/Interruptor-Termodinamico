@@ -25,6 +25,11 @@ public class DisassemblyGame : MonoBehaviour
     [Tooltip("Panel que se muestra al colocar todas las piezas correctamente")]
     public GameObject panelCompletado;
 
+    [Header("Modelo armado (visual fijo)")]
+    [Tooltip("Objeto(s) con el aspecto del interruptor ya armado (ej: piezaFinal). " +
+             "Se ocultan al iniciar el desarme para que no se superpongan con las piezas sueltas.")]
+    public GameObject[] modeloArmadoAOcultar;
+
     private int piezasColocadas = 0;
     private bool juegoIniciado = false;
 
@@ -42,6 +47,10 @@ public class DisassemblyGame : MonoBehaviour
             // Nos suscribimos por código para no depender de que cada pieza
             // tenga cableado su UnityEvent manualmente en el Inspector.
             p.pieza.onPiezaColocada.AddListener(RegistrarPiezaColocada);
+
+            // Las piezas sueltas están ocultas hasta que arranca el desarme,
+            // para no verse superpuestas con el modelo armado.
+            p.pieza.gameObject.SetActive(false);
         }
     }
 
@@ -49,6 +58,11 @@ public class DisassemblyGame : MonoBehaviour
     {
         if (panelJuego != null) panelJuego.SetActive(true);
         if (panelCompletado != null) panelCompletado.SetActive(false);
+
+        for (int i = 0; i < modeloArmadoAOcultar.Length; i++)
+        {
+            if (modeloArmadoAOcultar[i] != null) modeloArmadoAOcultar[i].SetActive(false);
+        }
 
         piezasColocadas = 0;
         juegoIniciado = true;

@@ -38,12 +38,6 @@ public class GameManager : MonoBehaviour
         if (panelVictoria != null) panelVictoria.SetActive(false);
         if (panelSobrecarga != null) panelSobrecarga.SetActive(false);
         if (panelCortoCircuito != null) panelCortoCircuito.SetActive(false);
-
-        // Cuando termina la animación del disparo, arrancamos el juego de desarme
-        if (shortCircuitAnimator != null && disassemblyGame != null)
-        {
-            shortCircuitAnimator.onCortoCircuitoFinalizado.AddListener(disassemblyGame.IniciarJuego);
-        }
     }
 
     public void AddScore()
@@ -111,15 +105,17 @@ public class GameManager : MonoBehaviour
         overloadAnimator.IniciarSobrecarga();
     }
 
+    // Botón "Desarmado de interruptor": sin animación, muestra directamente
+    // las piezas dispersas para que el usuario las vuelva a colocar.
     public void PresionarBotonCortoCircuito()
     {
-        if (shortCircuitAnimator == null)
+        if (disassemblyGame == null)
         {
-            Debug.LogWarning("PresionarBotonCortoCircuito: no hay ningún 'Short Circuit Animator' asignado en el GameManager (Inspector). La animación no puede iniciar.");
+            Debug.LogWarning("PresionarBotonCortoCircuito: no hay ningún 'Disassembly Game' asignado en el GameManager (Inspector). El juego de desarme no puede iniciar.");
             return;
         }
 
-        Debug.Log("Iniciando animación de corto circuito...");
-        shortCircuitAnimator.IniciarCortoCircuito();
+        Debug.Log("Iniciando juego de desarme...");
+        disassemblyGame.IniciarJuego();
     }
 }

@@ -88,6 +88,7 @@ public class Piece3DDragAndDrop : MonoBehaviour
         colocada = false;
         isDragging = false;
         this.enabled = true;
+        gameObject.SetActive(true);
         transform.position = posicionInicial;
         transform.rotation = rotacionInicial;
     }
