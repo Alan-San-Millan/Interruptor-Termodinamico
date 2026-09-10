@@ -11,9 +11,6 @@ public static class DisassemblyGameSetup
 {
     private static readonly Regex PiezaRegex = new Regex(@"^pieza\d+$", RegexOptions.IgnoreCase);
 
-    // Separación entre piezas dispersas, en unidades del mundo
-    private const float EspaciadoGrilla = 1.2f;
-
     private const string RutaMaterialIndicador = "Assets/Switch/Mat_IndicadorDesarme.mat";
 
     [MenuItem("Tools/Interruptor/Configurar Juego de Desarme")]
@@ -98,11 +95,18 @@ public static class DisassemblyGameSetup
             Undo.RegisterCreatedObjectUndo(contenedorDesarmadas, "Crear PosicionesDesarmadas");
         }
 
-        // Centro de referencia (promedio de los snaps) para ubicar la grilla
-        // de piezas dispersas separada del modelo armado.
-        Vector3 centro = Vector3.zero;
-        foreach (var (_, snap) in piezasEncontradas) centro += snap.position;
-        centro /= piezasEncontradas.Count;
+        // Calculamos el tamaño real de la carcasa/modelo armado (bounds de
+        // todos sus renderers) para poder ubicar las piezas dispersas
+        // claramente AFUERA de ella, con un espaciado proporcional a su
+        // escala real (no un valor fijo que puede quedar minúsculo o gigante
+        // según las unidades del modelo).
+        Bounds boundsModelo = CalcularBoundsModelo(piezasEncontradas);
+
+        // Arrancamos la grilla justo a la derecha del borde derecho del
+        // modelo, con margen proporcional a su tamaño.
+        float margen = boundsModelo.extents.x * 0.4f + 0.1f;
+        float espaciado = Mathf.Max(boundsModelo.size.magnitude * 0.12f, margen * 0.5f);
+        Vector3 origen = new Vector3(boundsModelo.max.x + margen, boundsModelo.min.y, 0f);
 
         var piezasParaManager = new List<DisassemblyGame.PiezaDesarme>();
 
@@ -139,16 +143,16 @@ public static class DisassemblyGameSetup
 
             // Solo se corren en X/Y: conservan su propia profundidad (Z) y su
             // rotación de armado, como si las hubieran sacado del interruptor
-            // y las dejaran flotando al lado, mirando igual que antes.
+            // y las dejaran flotando afuera de la carcasa, mirando igual que
+            // antes.
             int fila = indice / columnas;
             int columna = indice % columnas;
-            Vector3 offsetXY = new Vector3(
-                (columna - (columnas - 1) / 2f) * EspaciadoGrilla,
-                fila * EspaciadoGrilla,
-                0f
-            );
 
-            posDesarmada.position = new Vector3(centro.x, centro.y, snap.position.z) + offsetXY;
+            posDesarmada.position = new Vector3(
+                origen.x + columna * espaciado,
+                origen.y + fila * espaciado,
+                snap.position.z
+            );
             posDesarmada.rotation = snap.rotation;
             indice++;
 
@@ -193,6 +197,48 @@ public static class DisassemblyGameSetup
         }
 
         Debug.Log($"DisassemblyGameSetup: configuradas {piezasParaManager.Count} piezas en '{managerGO.name}'.");
+    }
+
+    // Bounds combinado de todos los renderers de las piezas (mecanismo +
+    // carcasa, ya que sus Renderer están dentro del mismo piezaFinal),
+    // usado como referencia del tamaño real del modelo en el mundo.
+    private static Bounds CalcularBoundsModelo(List<(Transform pieza, Transform snap)> piezas)
+    {
+        Bounds? total = null;
+
+        // Encapsulamos las piezas del juego...
+        foreach (var (pieza, _) in piezas)
+        {
+            foreach (Renderer r in pieza.GetComponentsInChildren<Renderer>())
+            {
+                if (total == null) total = r.bounds;
+                else { Bounds b = total.Value; b.Encapsulate(r.bounds); total = b; }
+            }
+        }
+
+        // ...y también toda la carcasa (piezaFinal completo), para no dejar
+        // piezas dispersas encima de partes fijas como la tapa trasera.
+        foreach (GameObject piezaFinalGO in ObjetosLlamados("piezaFinal"))
+        {
+            foreach (Renderer r in piezaFinalGO.GetComponentsInChildren<Renderer>())
+            {
+                if (total == null) total = r.bounds;
+                else { Bounds b = total.Value; b.Encapsulate(r.bounds); total = b; }
+            }
+        }
+
+        return total ?? new Bounds(Vector3.zero, Vector3.one);
+    }
+
+    private static IEnumerable<GameObject> ObjetosLlamados(string nombre)
+    {
+        foreach (Transform t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            if (t.name.Equals(nombre, System.StringComparison.OrdinalIgnoreCase))
+            {
+                yield return t.gameObject;
+            }
+        }
     }
 
     private static Material ObtenerOCrearMaterialIndicador()
