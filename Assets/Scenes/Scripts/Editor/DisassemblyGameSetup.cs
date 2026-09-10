@@ -11,9 +11,16 @@ public static class DisassemblyGameSetup
 {
     private static readonly Regex PiezaRegex = new Regex(@"^pieza\d+$", RegexOptions.IgnoreCase);
 
+    // Separación entre piezas dispersas, en unidades del mundo
+    private const float EspaciadoGrilla = 2.5f;
+
     [MenuItem("Tools/Interruptor/Configurar Juego de Desarme")]
     public static void ConfigurarJuegoDeDesarme()
     {
+        // 0. Piezas exclusivas de otras animaciones (Sobrecarga / Corto Circuito
+        // "lever trip"): no deben tocarse ni incluirse en el juego de desarme.
+        HashSet<string> nombresExcluidos = ObtenerNombresUsadosPorOtrosAnimadores();
+
         // 1. Buscamos todas las piezas y sus Snap_ correspondientes en toda la escena
         Transform[] todos = Object.FindObjectsByType<Transform>(FindObjectsSortMode.None);
 
@@ -29,6 +36,18 @@ public static class DisassemblyGameSetup
             // las copias sueltas fuera de ese objeto.
             if (EstaDentroDe(t, "piezaFinal"))
             {
+                continue;
+            }
+
+            if (nombresExcluidos.Contains(t.name.ToLowerInvariant()))
+            {
+                // Es una copia de una pieza que ya anima Sobrecarga/CortoCircuito:
+                // la ocultamos (es redundante) y no la tocamos para nada más.
+                if (t.gameObject.activeSelf)
+                {
+                    Undo.RecordObject(t.gameObject, "Ocultar copia redundante");
+                    t.gameObject.SetActive(false);
+                }
                 continue;
             }
 
@@ -55,6 +74,21 @@ public static class DisassemblyGameSetup
             piezasEncontradas.Add((t, snap));
         }
 
+        // Re-habilitamos cualquier pieza original excluida que haya quedado
+        // mal oculta por una corrida anterior de esta herramienta.
+        foreach (GameObject piezaFinalGO in ObjetosLlamados("piezaFinal"))
+        {
+            foreach (string nombreExcluido in nombresExcluidos)
+            {
+                Transform original = BuscarHijoPorNombre(piezaFinalGO.transform, nombreExcluido);
+                if (original != null && !original.gameObject.activeSelf)
+                {
+                    Undo.RecordObject(original.gameObject, "Reactivar pieza original excluida");
+                    original.gameObject.SetActive(true);
+                }
+            }
+        }
+
         if (piezasEncontradas.Count == 0)
         {
             Debug.LogWarning("DisassemblyGameSetup: no se encontró ninguna pieza con el patrón PIEZAx + Snap_PIEZAx.");
@@ -68,6 +102,12 @@ public static class DisassemblyGameSetup
             contenedorDesarmadas = new GameObject("PosicionesDesarmadas");
             Undo.RegisterCreatedObjectUndo(contenedorDesarmadas, "Crear PosicionesDesarmadas");
         }
+
+        // Centro de referencia (promedio de los snaps) para ubicar la grilla
+        // de piezas dispersas separada del modelo armado.
+        Vector3 centro = Vector3.zero;
+        foreach (var (_, snap) in piezasEncontradas) centro += snap.position;
+        centro /= piezasEncontradas.Count;
 
         // Ocultamos (para siempre) las piezas originales dentro de piezaFinal:
         // las copias sueltas ya cumplen su rol, tanto armadas como dispersas.
@@ -89,6 +129,9 @@ public static class DisassemblyGameSetup
 
         var piezasParaManager = new List<DisassemblyGame.PiezaDesarme>();
 
+        int columnas = Mathf.CeilToInt(Mathf.Sqrt(piezasEncontradas.Count));
+        int indice = 0;
+
         foreach (var (pieza, snap) in piezasEncontradas)
         {
             // Agregamos Piece3DDragAndDrop si no lo tiene, y le asignamos el snap
@@ -105,9 +148,8 @@ public static class DisassemblyGameSetup
                 Debug.LogWarning($"DisassemblyGameSetup: {pieza.name} no tiene Collider, no se va a poder arrastrar.");
             }
 
-            // Creamos (o reutilizamos) el vacío "Desarmada_PIEZAx" en la posición
-            // ACTUAL de la pieza (asumimos que ahora mismo el modelo está en su
-            // pose "desarmada"/dispersa, tal como se ve en la escena)
+            // Generamos la posición dispersa en una grilla, bien separada del
+            // modelo armado, en vez de usar la pose actual (poco confiable).
             string nombreDesarmada = "Desarmada_" + pieza.name;
             Transform posDesarmada = contenedorDesarmadas.transform.Find(nombreDesarmada);
             if (posDesarmada == null)
@@ -117,8 +159,18 @@ public static class DisassemblyGameSetup
                 go.transform.SetParent(contenedorDesarmadas.transform, worldPositionStays: false);
                 posDesarmada = go.transform;
             }
-            posDesarmada.position = pieza.position;
-            posDesarmada.rotation = pieza.rotation;
+
+            int fila = indice / columnas;
+            int columna = indice % columnas;
+            Vector3 offset = new Vector3(
+                (columna - (columnas - 1) / 2f) * EspaciadoGrilla,
+                fila * EspaciadoGrilla,
+                -EspaciadoGrilla * columnas // las alejamos hacia la cámara/al frente
+            );
+
+            posDesarmada.position = centro + offset;
+            posDesarmada.rotation = Quaternion.identity;
+            indice++;
 
             piezasParaManager.Add(new DisassemblyGame.PiezaDesarme
             {
@@ -155,6 +207,31 @@ public static class DisassemblyGameSetup
         }
 
         Debug.Log($"DisassemblyGameSetup: configuradas {piezasParaManager.Count} piezas en '{managerGO.name}'.");
+    }
+
+    private static HashSet<string> ObtenerNombresUsadosPorOtrosAnimadores()
+    {
+        var nombres = new HashSet<string>();
+
+        foreach (SwitchOverloadAnimator anim in Object.FindObjectsByType<SwitchOverloadAnimator>(FindObjectsSortMode.None))
+        {
+            if (anim.piezas == null) continue;
+            foreach (var p in anim.piezas)
+            {
+                if (p.pieza != null) nombres.Add(p.pieza.name.ToLowerInvariant());
+            }
+        }
+
+        foreach (ShortCircuitAnimator anim in Object.FindObjectsByType<ShortCircuitAnimator>(FindObjectsSortMode.None))
+        {
+            if (anim.piezas == null) continue;
+            foreach (var p in anim.piezas)
+            {
+                if (p.pieza != null) nombres.Add(p.pieza.name.ToLowerInvariant());
+            }
+        }
+
+        return nombres;
     }
 
     private static bool EstaDentroDe(Transform t, string nombreAncestro)
