@@ -68,7 +68,9 @@ public static class DisassemblyGameSetup
 
             if (snap == null)
             {
-                Debug.LogWarning($"DisassemblyGameSetup: no se encontró 'Snap_{t.name}' junto a {t.name}, se omite.");
+                // Piezas sin Snap_ (ej: carcasa delantera/trasera, piezas
+                // irrelevantes) se consideran fijas a propósito: no forman
+                // parte del juego, no hace falta avisar.
                 continue;
             }
 
