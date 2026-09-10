@@ -24,6 +24,14 @@ public static class DisassemblyGameSetup
             if (!PiezaRegex.IsMatch(t.name)) continue;
             if (t.parent == null) continue;
 
+            // Las piezas ORIGINALES (fijas, siempre visibles) están anidadas
+            // dentro de "piezaFinal". Las que nos interesan para el juego son
+            // las copias sueltas fuera de ese objeto.
+            if (EstaDentroDe(t, "piezaFinal"))
+            {
+                continue;
+            }
+
             Transform snap = t.parent.Find("Snap_" + t.name);
             if (snap == null)
             {
@@ -60,6 +68,24 @@ public static class DisassemblyGameSetup
             contenedorDesarmadas = new GameObject("PosicionesDesarmadas");
             Undo.RegisterCreatedObjectUndo(contenedorDesarmadas, "Crear PosicionesDesarmadas");
         }
+
+        // Ocultamos (para siempre) las piezas originales dentro de piezaFinal:
+        // las copias sueltas ya cumplen su rol, tanto armadas como dispersas.
+        int originalesOcultadas = 0;
+        foreach (GameObject piezaFinalGO in ObjetosLlamados("piezaFinal"))
+        {
+            foreach (var (pieza, _) in piezasEncontradas)
+            {
+                Transform original = BuscarHijoPorNombre(piezaFinalGO.transform, pieza.name);
+                if (original != null && original.gameObject.activeSelf)
+                {
+                    Undo.RecordObject(original.gameObject, "Ocultar pieza original");
+                    original.gameObject.SetActive(false);
+                    originalesOcultadas++;
+                }
+            }
+        }
+        Debug.Log($"DisassemblyGameSetup: {originalesOcultadas} piezas originales ocultadas dentro de piezaFinal.");
 
         var piezasParaManager = new List<DisassemblyGame.PiezaDesarme>();
 
@@ -129,5 +155,43 @@ public static class DisassemblyGameSetup
         }
 
         Debug.Log($"DisassemblyGameSetup: configuradas {piezasParaManager.Count} piezas en '{managerGO.name}'.");
+    }
+
+    private static bool EstaDentroDe(Transform t, string nombreAncestro)
+    {
+        for (Transform p = t.parent; p != null; p = p.parent)
+        {
+            if (p.name.Equals(nombreAncestro, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static IEnumerable<GameObject> ObjetosLlamados(string nombre)
+    {
+        foreach (Transform t in Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
+        {
+            if (t.name.Equals(nombre, System.StringComparison.OrdinalIgnoreCase))
+            {
+                yield return t.gameObject;
+            }
+        }
+    }
+
+    private static Transform BuscarHijoPorNombre(Transform raiz, string nombre)
+    {
+        foreach (Transform hijo in raiz)
+        {
+            if (hijo.name.Equals(nombre, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return hijo;
+            }
+
+            Transform enHijo = BuscarHijoPorNombre(hijo, nombre);
+            if (enHijo != null) return enHijo;
+        }
+        return null;
     }
 }
