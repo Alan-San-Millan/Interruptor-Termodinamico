@@ -5,8 +5,8 @@ using UnityEngine;
 
 // Herramienta de Editor para configurar automáticamente el juego de desarme
 // (etapa de corto circuito) a partir de la convención de nombres del proyecto:
-// una pieza llamada "PIEZAx" (o "piezax") con un objeto hermano "Snap_PIEZAx"
-// que marca su posición correcta.
+// una pieza llamada "PIEZAx" (o "piezax", dentro de piezaFinal) con un objeto
+// hermano "Snap_PIEZAx" que marca su posición correcta.
 public static class DisassemblyGameSetup
 {
     private static readonly Regex PiezaRegex = new Regex(@"^pieza\d+$", RegexOptions.IgnoreCase);
@@ -21,33 +21,34 @@ public static class DisassemblyGameSetup
         // "lever trip"): no deben tocarse ni incluirse en el juego de desarme.
         HashSet<string> nombresExcluidos = ObtenerNombresUsadosPorOtrosAnimadores();
 
-        // 1. Buscamos todas las piezas y sus Snap_ correspondientes en toda la escena
-        Transform[] todos = Object.FindObjectsByType<Transform>(FindObjectsSortMode.None);
+        // 1. Buscamos TODAS las piezas (incluidas las inactivas, por si quedaron
+        // mal apagadas por una corrida anterior de esta herramienta) y sus
+        // Snap_ correspondientes.
+        Transform[] todos = Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
 
         var piezasEncontradas = new List<(Transform pieza, Transform snap)>();
+        int reactivadas = 0;
 
         foreach (Transform t in todos)
         {
             if (!PiezaRegex.IsMatch(t.name)) continue;
             if (t.parent == null) continue;
 
-            // Las piezas ORIGINALES (fijas, siempre visibles) están anidadas
-            // dentro de "piezaFinal". Las que nos interesan para el juego son
-            // las copias sueltas fuera de ese objeto.
-            if (EstaDentroDe(t, "piezaFinal"))
+            bool esExcluida = nombresExcluidos.Contains(t.name.ToLowerInvariant());
+
+            // Si quedó apagada por error (por ejemplo, por una corrida anterior
+            // de esta misma herramienta), la reactivamos siempre.
+            if (!t.gameObject.activeSelf)
             {
-                continue;
+                Undo.RecordObject(t.gameObject, "Reactivar pieza");
+                t.gameObject.SetActive(true);
+                reactivadas++;
             }
 
-            if (nombresExcluidos.Contains(t.name.ToLowerInvariant()))
+            if (esExcluida)
             {
-                // Es una copia de una pieza que ya anima Sobrecarga/CortoCircuito:
-                // la ocultamos (es redundante) y no la tocamos para nada más.
-                if (t.gameObject.activeSelf)
-                {
-                    Undo.RecordObject(t.gameObject, "Ocultar copia redundante");
-                    t.gameObject.SetActive(false);
-                }
+                // Es una pieza que ya controla Sobrecarga/CortoCircuito: la
+                // dejamos intacta, no forma parte del juego de desarme.
                 continue;
             }
 
@@ -74,19 +75,9 @@ public static class DisassemblyGameSetup
             piezasEncontradas.Add((t, snap));
         }
 
-        // Re-habilitamos cualquier pieza original excluida que haya quedado
-        // mal oculta por una corrida anterior de esta herramienta.
-        foreach (GameObject piezaFinalGO in ObjetosLlamados("piezaFinal"))
+        if (reactivadas > 0)
         {
-            foreach (string nombreExcluido in nombresExcluidos)
-            {
-                Transform original = BuscarHijoPorNombre(piezaFinalGO.transform, nombreExcluido);
-                if (original != null && !original.gameObject.activeSelf)
-                {
-                    Undo.RecordObject(original.gameObject, "Reactivar pieza original excluida");
-                    original.gameObject.SetActive(true);
-                }
-            }
+            Debug.Log($"DisassemblyGameSetup: {reactivadas} pieza(s) reactivadas (habían quedado ocultas).");
         }
 
         if (piezasEncontradas.Count == 0)
@@ -108,24 +99,6 @@ public static class DisassemblyGameSetup
         Vector3 centro = Vector3.zero;
         foreach (var (_, snap) in piezasEncontradas) centro += snap.position;
         centro /= piezasEncontradas.Count;
-
-        // Ocultamos (para siempre) las piezas originales dentro de piezaFinal:
-        // las copias sueltas ya cumplen su rol, tanto armadas como dispersas.
-        int originalesOcultadas = 0;
-        foreach (GameObject piezaFinalGO in ObjetosLlamados("piezaFinal"))
-        {
-            foreach (var (pieza, _) in piezasEncontradas)
-            {
-                Transform original = BuscarHijoPorNombre(piezaFinalGO.transform, pieza.name);
-                if (original != null && original.gameObject.activeSelf)
-                {
-                    Undo.RecordObject(original.gameObject, "Ocultar pieza original");
-                    original.gameObject.SetActive(false);
-                    originalesOcultadas++;
-                }
-            }
-        }
-        Debug.Log($"DisassemblyGameSetup: {originalesOcultadas} piezas originales ocultadas dentro de piezaFinal.");
 
         var piezasParaManager = new List<DisassemblyGame.PiezaDesarme>();
 
@@ -149,7 +122,7 @@ public static class DisassemblyGameSetup
             }
 
             // Generamos la posición dispersa en una grilla, bien separada del
-            // modelo armado, en vez de usar la pose actual (poco confiable).
+            // modelo armado.
             string nombreDesarmada = "Desarmada_" + pieza.name;
             Transform posDesarmada = contenedorDesarmadas.transform.Find(nombreDesarmada);
             if (posDesarmada == null)
@@ -213,7 +186,7 @@ public static class DisassemblyGameSetup
     {
         var nombres = new HashSet<string>();
 
-        foreach (SwitchOverloadAnimator anim in Object.FindObjectsByType<SwitchOverloadAnimator>(FindObjectsSortMode.None))
+        foreach (SwitchOverloadAnimator anim in Object.FindObjectsByType<SwitchOverloadAnimator>(FindObjectsInactive.Include, FindObjectsSortMode.None))
         {
             if (anim.piezas == null) continue;
             foreach (var p in anim.piezas)
@@ -222,7 +195,7 @@ public static class DisassemblyGameSetup
             }
         }
 
-        foreach (ShortCircuitAnimator anim in Object.FindObjectsByType<ShortCircuitAnimator>(FindObjectsSortMode.None))
+        foreach (ShortCircuitAnimator anim in Object.FindObjectsByType<ShortCircuitAnimator>(FindObjectsInactive.Include, FindObjectsSortMode.None))
         {
             if (anim.piezas == null) continue;
             foreach (var p in anim.piezas)
@@ -232,43 +205,5 @@ public static class DisassemblyGameSetup
         }
 
         return nombres;
-    }
-
-    private static bool EstaDentroDe(Transform t, string nombreAncestro)
-    {
-        for (Transform p = t.parent; p != null; p = p.parent)
-        {
-            if (p.name.Equals(nombreAncestro, System.StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static IEnumerable<GameObject> ObjetosLlamados(string nombre)
-    {
-        foreach (Transform t in Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
-        {
-            if (t.name.Equals(nombre, System.StringComparison.OrdinalIgnoreCase))
-            {
-                yield return t.gameObject;
-            }
-        }
-    }
-
-    private static Transform BuscarHijoPorNombre(Transform raiz, string nombre)
-    {
-        foreach (Transform hijo in raiz)
-        {
-            if (hijo.name.Equals(nombre, System.StringComparison.OrdinalIgnoreCase))
-            {
-                return hijo;
-            }
-
-            Transform enHijo = BuscarHijoPorNombre(hijo, nombre);
-            if (enHijo != null) return enHijo;
-        }
-        return null;
     }
 }
