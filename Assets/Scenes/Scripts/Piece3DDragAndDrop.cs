@@ -11,15 +11,31 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
     [Tooltip("Transform que marca la posición/rotación correcta de esta pieza")]
     public Transform snapPosition;
 
-    [Tooltip("Qué tan cerca del destino hay que soltarla para que encaje")]
-    public float positionTolerance = 0.5f;
+    [Tooltip("Margen de error al soltar, como fracción del alto de la pantalla. " +
+             "0.08 = encaja si se suelta a menos de un 8% de la pantalla del destino.")]
+    [Range(0.01f, 0.3f)]
+    public float margenDeError = 0.08f;
 
-    [Tooltip("Se dispara una sola vez, cuando la pieza encaja correctamente")]
+    [Tooltip("Se dispara cuando la pieza encaja correctamente")]
     public UnityEvent onPiezaColocada;
+
+    [Tooltip("Se dispara cuando se suelta la pieza lejos de su destino")]
+    public UnityEvent onPiezaFallada;
 
     private bool colocada = false;
     private float distanciaCamara;
-    private Vector3 offsetArrastre;
+    private Vector3 desfaseCentroVisual;
+    private Vector3 posicionDispersa;
+    private Quaternion rotacionDispersa;
+
+    void Awake()
+    {
+        // El pivote del mesh no suele coincidir con su centro visual. Guardamos
+        // la diferencia para que al arrastrar sea el centro de la pieza el que
+        // sigue al dedo/cursor, y no una esquina.
+        Renderer rend = GetComponentInChildren<Renderer>();
+        desfaseCentroVisual = rend != null ? transform.position - rend.bounds.center : Vector3.zero;
+    }
 
     public void OnPointerDown(PointerEventData eventData)
     {
@@ -29,12 +45,11 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
         if (cam == null) return;
 
         distanciaCamara = Vector3.Distance(cam.transform.position, transform.position);
-        offsetArrastre = transform.position - PuntoEnPlanoDeArrastre(eventData, cam);
     }
 
     public void OnBeginDrag(PointerEventData eventData)
     {
-        // El offset ya se calculó en OnPointerDown; acá no hace falta nada más.
+        // La distancia a cámara ya se fijó en OnPointerDown.
     }
 
     public void OnDrag(PointerEventData eventData)
@@ -44,24 +59,40 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
         Camera cam = CamaraDe(eventData);
         if (cam == null) return;
 
-        transform.position = PuntoEnPlanoDeArrastre(eventData, cam) + offsetArrastre;
+        // La pieza va pegada al cursor/dedo, centrada en él.
+        transform.position = PuntoEnPlanoDeArrastre(eventData, cam) + desfaseCentroVisual;
     }
 
     public void OnEndDrag(PointerEventData eventData)
     {
         if (colocada) return;
 
-        if (Vector3.Distance(transform.position, snapPosition.position) <= positionTolerance)
+        Camera cam = CamaraDe(eventData);
+        if (cam == null) return;
+
+        // El margen se mide en pantalla, no en el mundo: es lo que ve el
+        // jugador y no depende de la profundidad ni de la escala del modelo.
+        Vector2 enPantalla = cam.WorldToScreenPoint(transform.position);
+        Vector2 destinoEnPantalla = cam.WorldToScreenPoint(snapPosition.position);
+
+        if (Vector2.Distance(enPantalla, destinoEnPantalla) <= Screen.height * margenDeError)
         {
             transform.position = snapPosition.position;
             transform.rotation = snapPosition.rotation;
             colocada = true;
+            this.enabled = false;
 
             Debug.Log($"{name}: pieza colocada correctamente.");
             onPiezaColocada?.Invoke();
+        }
+        else
+        {
+            // Como en el juego de arrastrar nombres: vuelve a su lugar de origen
+            transform.position = posicionDispersa;
+            transform.rotation = rotacionDispersa;
 
-            // Ya no se puede volver a mover una vez colocada
-            this.enabled = false;
+            Debug.Log($"{name}: posición incorrecta, vuelve al inicio.");
+            onPiezaFallada?.Invoke();
         }
     }
 
@@ -90,6 +121,8 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
         colocada = false;
         this.enabled = true;
         gameObject.SetActive(true);
+        posicionDispersa = posicionInicial;
+        rotacionDispersa = rotacionInicial;
         transform.position = posicionInicial;
         transform.rotation = rotacionInicial;
     }

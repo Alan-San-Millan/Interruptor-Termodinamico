@@ -35,6 +35,7 @@ public static class DisassemblyGameSetup
         Transform[] todos = Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
 
         var piezasEncontradas = new List<(Transform pieza, Transform snap)>();
+        var piezasFijas = new List<Transform>();
         int reactivadas = 0;
 
         foreach (Transform t in todos)
@@ -78,7 +79,8 @@ public static class DisassemblyGameSetup
             {
                 // Piezas sin Snap_ (ej: carcasa delantera/trasera, piezas
                 // irrelevantes) se consideran fijas a propósito: no forman
-                // parte del juego, no hace falta avisar.
+                // parte del juego y quedan siempre visibles.
+                piezasFijas.Add(t);
                 continue;
             }
 
@@ -132,9 +134,6 @@ public static class DisassemblyGameSetup
                 drag = Undo.AddComponent<Piece3DDragAndDrop>(pieza.gameObject);
             }
             drag.snapPosition = snap;
-            // Tolerancia proporcional al modelo: con un valor fijo, en un
-            // modelo chico encajaría todo de una y en uno grande nada.
-            drag.positionTolerance = Mathf.Max(boundsModelo.size.magnitude * 0.05f, 0.05f);
 
             // Verificamos que tenga collider (necesario para poder clickearla)
             if (pieza.GetComponent<Collider>() == null)
@@ -203,6 +202,13 @@ public static class DisassemblyGameSetup
         manager.piezas = piezasParaManager.ToArray();
         manager.materialIndicador = ObtenerOCrearMaterialIndicador();
         manager.tamanoIndicador = tamanoPunto;
+        manager.objetosAOcultar = RecolectarObjetosAOcultar(piezasEncontradas, piezasFijas);
+
+        if (manager.textoPuntaje == null)
+        {
+            manager.textoPuntaje = CrearTextoPuntaje();
+        }
+
         EditorUtility.SetDirty(manager);
 
         // El arrastre 3D depende del EventSystem, así que la cámara necesita un
@@ -219,6 +225,100 @@ public static class DisassemblyGameSetup
         }
 
         Debug.Log($"DisassemblyGameSetup: configuradas {piezasParaManager.Count} piezas en '{managerGO.name}'.");
+    }
+
+    // Todo lo que debe desaparecer al empezar el juego: el mecanismo que queda
+    // dentro de la carcasa (y que no es ni una pieza jugable ni la carcasa
+    // misma) más los botones de la interfaz.
+    private static GameObject[] RecolectarObjetosAOcultar(
+        List<(Transform pieza, Transform snap)> piezasJugables, List<Transform> piezasFijas)
+    {
+        var raicesExcluidas = new HashSet<Transform>();
+        foreach (var (pieza, _) in piezasJugables) raicesExcluidas.Add(pieza);
+        foreach (Transform fija in piezasFijas) raicesExcluidas.Add(fija);
+
+        var aOcultar = new List<GameObject>();
+
+        Bounds boundsCarcasa = CalcularBoundsDeTransforms(piezasFijas);
+        if (piezasFijas.Count > 0)
+        {
+            foreach (Renderer r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (TieneAncestroEn(r.transform, raicesExcluidas)) continue;
+                if (!boundsCarcasa.Contains(r.bounds.center)) continue;
+                // Descarta cosas enormes que engloban la carcasa (el piso, etc.)
+                if (r.bounds.size.magnitude > boundsCarcasa.size.magnitude) continue;
+
+                aOcultar.Add(r.gameObject);
+            }
+        }
+
+        // Los botones tienen que salir de la pantalla mientras se juega
+        foreach (string nombrePanel in new[] { "PanelSobrecarga", "PanelCortoCircuito" })
+        {
+            foreach (GameObject panel in ObjetosLlamados(nombrePanel))
+            {
+                if (!aOcultar.Contains(panel)) aOcultar.Add(panel);
+            }
+        }
+
+        Debug.Log($"DisassemblyGameSetup: {aOcultar.Count} objeto(s) se ocultarán durante el juego (mecanismo interior + botones).");
+        return aOcultar.ToArray();
+    }
+
+    private static bool TieneAncestroEn(Transform t, HashSet<Transform> raices)
+    {
+        for (Transform actual = t; actual != null; actual = actual.parent)
+        {
+            if (raices.Contains(actual)) return true;
+        }
+        return false;
+    }
+
+    private static Bounds CalcularBoundsDeTransforms(List<Transform> objetos)
+    {
+        Bounds? total = null;
+
+        foreach (Transform t in objetos)
+        {
+            foreach (Renderer r in t.GetComponentsInChildren<Renderer>())
+            {
+                if (total == null) total = r.bounds;
+                else { Bounds b = total.Value; b.Encapsulate(r.bounds); total = b; }
+            }
+        }
+
+        return total ?? new Bounds(Vector3.zero, Vector3.zero);
+    }
+
+    private static TMPro.TextMeshProUGUI CrearTextoPuntaje()
+    {
+        Canvas canvas = Object.FindAnyObjectByType<Canvas>();
+        if (canvas == null)
+        {
+            Debug.LogWarning("DisassemblyGameSetup: no hay Canvas en la escena, no pude crear el texto de puntaje.");
+            return null;
+        }
+
+        var go = new GameObject("PuntajeDesarme", typeof(RectTransform));
+        Undo.RegisterCreatedObjectUndo(go, "Crear PuntajeDesarme");
+        go.transform.SetParent(canvas.transform, worldPositionStays: false);
+
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 1f);
+        rt.anchorMax = new Vector2(0.5f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = new Vector2(0f, -30f);
+        rt.sizeDelta = new Vector2(500f, 80f);
+
+        var texto = go.AddComponent<TMPro.TextMeshProUGUI>();
+        texto.text = "Puntuación: 0";
+        texto.fontSize = 36f;
+        texto.alignment = TMPro.TextAlignmentOptions.Center;
+        texto.raycastTarget = false; // que no se robe los clicks
+
+        Debug.Log("DisassemblyGameSetup: se creó el texto 'PuntajeDesarme' en el Canvas.");
+        return texto;
     }
 
     // Sin PhysicsRaycaster en la cámara, los colliders 3D nunca reciben
@@ -297,27 +397,28 @@ public static class DisassemblyGameSetup
 
     private static Material ObtenerOCrearMaterialIndicador()
     {
-        Material existente = AssetDatabase.LoadAssetAtPath<Material>(RutaMaterialIndicador);
-        if (existente != null) return existente;
-
-        Shader shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
+        // Shader propio con ZTest Always: el punto nunca queda tapado
+        Shader shader = Shader.Find("Custom/PuntoDestino") ?? Shader.Find("Universal Render Pipeline/Unlit");
         if (shader == null)
         {
-            Debug.LogWarning("DisassemblyGameSetup: no se encontró un shader Unlit para crear el material del punto.");
+            Debug.LogWarning("DisassemblyGameSetup: no se encontró un shader para crear el material del punto.");
             return null;
         }
 
-        Material mat = new Material(shader) { name = "Mat_PuntoDestino" };
+        // Si ya existe de una corrida anterior, lo actualizamos en vez de
+        // reutilizarlo con el shader viejo.
+        Material mat = AssetDatabase.LoadAssetAtPath<Material>(RutaMaterialIndicador);
+        bool esNuevo = mat == null;
+        if (esNuevo) mat = new Material(shader) { name = "Mat_PuntoDestino" };
+        else if (mat.shader != shader) mat.shader = shader;
 
-        // Verde plano, dibujado por encima del resto para que no quede tapado
-        // por la carcasa ni por otras piezas.
         Color verde = new Color(0.15f, 0.9f, 0.25f, 1f);
         if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", verde);
         if (mat.HasProperty("_Color")) mat.SetColor("_Color", verde);
-        if (mat.HasProperty("_ZTest")) mat.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
         mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Overlay;
 
-        AssetDatabase.CreateAsset(mat, RutaMaterialIndicador);
+        if (esNuevo) AssetDatabase.CreateAsset(mat, RutaMaterialIndicador);
+        else EditorUtility.SetDirty(mat);
         AssetDatabase.SaveAssets();
 
         return mat;

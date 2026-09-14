@@ -1,10 +1,9 @@
+using TMPro;
 using UnityEngine;
-using UnityEngine.Events;
 
-// Etapa de "desarmado del interruptor": las piezas parten armadas (cada una
-// en su posición correcta) y, al presionar el botón, saltan a una posición
-// dispersa (misma orientación y profundidad, solo corridas en X/Y). El
-// usuario debe arrastrar cada una de vuelta a su lugar.
+// Etapa de "desarmado del interruptor": al empezar, la carcasa queda vacía y
+// las piezas aparecen repartidas a los costados de la pantalla, con un punto
+// verde marcando cada destino. El usuario debe arrastrar cada pieza a su lugar.
 public class DisassemblyGame : MonoBehaviour
 {
     [System.Serializable]
@@ -20,14 +19,26 @@ public class DisassemblyGame : MonoBehaviour
     [Header("Piezas del desarme")]
     public PiezaDesarme[] piezas;
 
-    [Header("Paneles")]
-    [Tooltip("Panel que se muestra mientras se juega esta etapa (opcional)")]
-    public GameObject panelJuego;
+    [Header("Se ocultan mientras se juega")]
+    [Tooltip("Todo lo que debe desaparecer al empezar: el resto del mecanismo dentro " +
+             "de la carcasa y los botones de la interfaz. Vuelve al completar el juego.")]
+    public GameObject[] objetosAOcultar;
 
+    [Header("Puntaje")]
+    [Tooltip("Texto donde se muestra el puntaje de esta etapa")]
+    public TextMeshProUGUI textoPuntaje;
+
+    [Tooltip("Puntos que suma colocar una pieza en su lugar")]
+    public int puntosPorAcierto = 1;
+
+    [Tooltip("Puntos que resta soltar una pieza en un lugar equivocado")]
+    public int puntosPorError = 1;
+
+    [Header("Paneles")]
     [Tooltip("Panel que se muestra al colocar todas las piezas correctamente")]
     public GameObject panelCompletado;
 
-    [Header("Punto verde de destino (opcional)")]
+    [Header("Punto verde de destino")]
     [Tooltip("Material del punto que marca cada posición correcta, sin indicar qué pieza va ahí")]
     public Material materialIndicador;
 
@@ -36,6 +47,7 @@ public class DisassemblyGame : MonoBehaviour
 
     private GameObject[] indicadores;
     private int piezasColocadas = 0;
+    private int puntaje = 0;
     private bool juegoIniciado = false;
 
     void Awake()
@@ -55,6 +67,7 @@ public class DisassemblyGame : MonoBehaviour
             // tenga cableado su UnityEvent manualmente en el Inspector.
             int indice = i;
             p.pieza.onPiezaColocada.AddListener(() => RegistrarPiezaColocada(indice));
+            p.pieza.onPiezaFallada.AddListener(RegistrarError);
 
             // Por defecto el modelo se ve armado: cada pieza arranca en su
             // posición correcta (Snap) y sin poder arrastrarse todavía.
@@ -100,11 +113,15 @@ public class DisassemblyGame : MonoBehaviour
 
     public void IniciarJuego()
     {
-        if (panelJuego != null) panelJuego.SetActive(true);
         if (panelCompletado != null) panelCompletado.SetActive(false);
 
+        // Vaciamos la carcasa y sacamos los botones de la pantalla
+        MostrarObjetosOcultables(false);
+
         piezasColocadas = 0;
+        puntaje = 0;
         juegoIniciado = true;
+        ActualizarTextoPuntaje();
 
         for (int i = 0; i < piezas.Length; i++)
         {
@@ -120,14 +137,25 @@ public class DisassemblyGame : MonoBehaviour
         Debug.Log($"{name}: desarme iniciado con {piezas.Length} piezas.");
     }
 
+    private void MostrarObjetosOcultables(bool visibles)
+    {
+        for (int i = 0; i < objetosAOcultar.Length; i++)
+        {
+            if (objetosAOcultar[i] != null) objetosAOcultar[i].SetActive(visibles);
+        }
+    }
+
     private void RegistrarPiezaColocada(int indice)
     {
         if (!juegoIniciado) return;
 
         piezasColocadas++;
-        Debug.Log($"{name}: pieza colocada ({piezasColocadas}/{piezas.Length}).");
+        puntaje += puntosPorAcierto;
+        ActualizarTextoPuntaje();
 
         if (indicadores[indice] != null) indicadores[indice].SetActive(false);
+
+        Debug.Log($"{name}: pieza colocada ({piezasColocadas}/{piezas.Length}). Puntaje: {puntaje}");
 
         if (piezasColocadas >= piezas.Length)
         {
@@ -135,10 +163,31 @@ public class DisassemblyGame : MonoBehaviour
         }
     }
 
+    private void RegistrarError()
+    {
+        if (!juegoIniciado) return;
+
+        puntaje -= puntosPorError;
+        ActualizarTextoPuntaje();
+    }
+
+    private void ActualizarTextoPuntaje()
+    {
+        if (textoPuntaje != null)
+        {
+            textoPuntaje.text = $"Puntuación: {puntaje}";
+        }
+    }
+
     private void Completar()
     {
         juegoIniciado = false;
-        Debug.Log($"{name}: ¡modelo reensamblado correctamente!");
+
+        // El interruptor vuelve a estar completo: reaparece el resto del
+        // mecanismo y los botones de la interfaz.
+        MostrarObjetosOcultables(true);
+
+        Debug.Log($"{name}: ¡modelo reensamblado correctamente! Puntaje final: {puntaje}");
 
         if (panelCompletado != null)
         {
