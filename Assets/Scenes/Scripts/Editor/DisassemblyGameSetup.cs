@@ -208,6 +208,11 @@ public static class DisassemblyGameSetup
         {
             manager.textoPuntaje = CrearTextoPuntaje();
         }
+        else if (manager.textoPuntaje.name == "PuntajeDesarme")
+        {
+            // Lo reubicamos si es el que generamos nosotros
+            UbicarArribaIzquierda(manager.textoPuntaje.rectTransform);
+        }
 
         EditorUtility.SetDirty(manager);
 
@@ -291,6 +296,17 @@ public static class DisassemblyGameSetup
         return total ?? new Bounds(Vector3.zero, Vector3.zero);
     }
 
+    private static void UbicarArribaIzquierda(RectTransform rt)
+    {
+        Undo.RecordObject(rt, "Ubicar marcador");
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0f, 1f);
+        rt.anchoredPosition = new Vector2(30f, -30f);
+        rt.sizeDelta = new Vector2(420f, 70f);
+        EditorUtility.SetDirty(rt);
+    }
+
     private static TMPro.TextMeshProUGUI CrearTextoPuntaje()
     {
         Canvas canvas = Object.FindAnyObjectByType<Canvas>();
@@ -304,17 +320,12 @@ public static class DisassemblyGameSetup
         Undo.RegisterCreatedObjectUndo(go, "Crear PuntajeDesarme");
         go.transform.SetParent(canvas.transform, worldPositionStays: false);
 
-        var rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0.5f, 1f);
-        rt.anchorMax = new Vector2(0.5f, 1f);
-        rt.pivot = new Vector2(0.5f, 1f);
-        rt.anchoredPosition = new Vector2(0f, -30f);
-        rt.sizeDelta = new Vector2(500f, 80f);
+        UbicarArribaIzquierda(go.GetComponent<RectTransform>());
 
         var texto = go.AddComponent<TMPro.TextMeshProUGUI>();
         texto.text = "Puntuación: 0";
         texto.fontSize = 36f;
-        texto.alignment = TMPro.TextAlignmentOptions.Center;
+        texto.alignment = TMPro.TextAlignmentOptions.TopLeft;
         texto.raycastTarget = false; // que no se robe los clicks
 
         Debug.Log("DisassemblyGameSetup: se creó el texto 'PuntajeDesarme' en el Canvas.");

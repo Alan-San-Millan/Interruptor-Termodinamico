@@ -23,19 +23,10 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
     public UnityEvent onPiezaFallada;
 
     private bool colocada = false;
-    private float distanciaCamara;
+    private float profundidadCamara;
     private Vector3 desfaseCentroVisual;
     private Vector3 posicionDispersa;
     private Quaternion rotacionDispersa;
-
-    void Awake()
-    {
-        // El pivote del mesh no suele coincidir con su centro visual. Guardamos
-        // la diferencia para que al arrastrar sea el centro de la pieza el que
-        // sigue al dedo/cursor, y no una esquina.
-        Renderer rend = GetComponentInChildren<Renderer>();
-        desfaseCentroVisual = rend != null ? transform.position - rend.bounds.center : Vector3.zero;
-    }
 
     public void OnPointerDown(PointerEventData eventData)
     {
@@ -44,7 +35,17 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
         Camera cam = CamaraDe(eventData);
         if (cam == null) return;
 
-        distanciaCamara = Vector3.Distance(cam.transform.position, transform.position);
+        // El pivote del mesh no suele coincidir con su centro visual: guardamos
+        // la diferencia para que sea el centro de la pieza el que sigue al
+        // dedo/cursor, y no una esquina.
+        Renderer rend = GetComponentInChildren<Renderer>();
+        Vector3 centroVisual = rend != null ? rend.bounds.center : transform.position;
+        desfaseCentroVisual = transform.position - centroVisual;
+
+        // Profundidad = proyección sobre el eje de vista, NO la distancia
+        // euclídea: con la pieza en un borde de la pantalla esa distancia es
+        // mayor que la profundidad real y la pieza saltaría hacia atrás.
+        profundidadCamara = Vector3.Dot(centroVisual - cam.transform.position, cam.transform.forward);
     }
 
     public void OnBeginDrag(PointerEventData eventData)
@@ -102,11 +103,11 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
     }
 
     // Proyecta el puntero sobre un plano perpendicular a la cámara, a la
-    // distancia en que estaba la pieza al empezar el arrastre.
+    // profundidad que tenía la pieza al empezar el arrastre.
     private Vector3 PuntoEnPlanoDeArrastre(PointerEventData eventData, Camera cam)
     {
         Ray ray = cam.ScreenPointToRay(eventData.position);
-        Plane plano = new Plane(-cam.transform.forward, cam.transform.position + cam.transform.forward * distanciaCamara);
+        Plane plano = new Plane(-cam.transform.forward, cam.transform.position + cam.transform.forward * profundidadCamara);
 
         if (plano.Raycast(ray, out float distanciaHit))
         {

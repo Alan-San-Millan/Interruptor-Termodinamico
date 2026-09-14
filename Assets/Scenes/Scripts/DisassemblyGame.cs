@@ -54,6 +54,14 @@ public class DisassemblyGame : MonoBehaviour
     {
         indicadores = new GameObject[piezas.Length];
 
+        // El marcador recién aparece cuando arranca el juego
+        if (textoPuntaje != null) textoPuntaje.gameObject.SetActive(false);
+
+        if (materialIndicador == null)
+        {
+            Debug.LogWarning($"{name}: no hay material asignado en 'Material Indicador', no se van a ver los puntos verdes.");
+        }
+
         for (int i = 0; i < piezas.Length; i++)
         {
             PiezaDesarme p = piezas[i];
@@ -87,13 +95,16 @@ public class DisassemblyGame : MonoBehaviour
 
         GameObject punto = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         punto.name = "Punto_" + p.pieza.name;
-        punto.transform.SetParent(p.pieza.snapPosition, worldPositionStays: false);
-        punto.transform.localPosition = Vector3.zero;
-        punto.transform.localRotation = Quaternion.identity;
+
+        // Cuelga del manager, NO del Snap: los Snap son copias con malla de las
+        // piezas y se ocultan durante el juego, así que se llevarían el punto.
+        punto.transform.SetParent(transform, worldPositionStays: false);
+        punto.transform.position = p.pieza.snapPosition.position;
+        punto.transform.rotation = Quaternion.identity;
 
         // Compensamos la escala heredada para que el punto mida siempre lo
-        // mismo en unidades del mundo, sin importar la escala del modelo.
-        Vector3 escalaPadre = p.pieza.snapPosition.lossyScale;
+        // mismo en unidades del mundo, sin importar la escala del padre.
+        Vector3 escalaPadre = transform.lossyScale;
         punto.transform.localScale = new Vector3(
             tamanoIndicador / Mathf.Max(Mathf.Abs(escalaPadre.x), 0.0001f),
             tamanoIndicador / Mathf.Max(Mathf.Abs(escalaPadre.y), 0.0001f),
@@ -121,8 +132,11 @@ public class DisassemblyGame : MonoBehaviour
         piezasColocadas = 0;
         puntaje = 0;
         juegoIniciado = true;
+
+        if (textoPuntaje != null) textoPuntaje.gameObject.SetActive(true);
         ActualizarTextoPuntaje();
 
+        int puntosVisibles = 0;
         for (int i = 0; i < piezas.Length; i++)
         {
             PiezaDesarme p = piezas[i];
@@ -131,10 +145,14 @@ public class DisassemblyGame : MonoBehaviour
             // Dispersa la pieza y habilita el arrastre
             p.pieza.ReiniciarPieza(p.posDesarmada.position, p.posDesarmada.rotation);
 
-            if (indicadores[i] != null) indicadores[i].SetActive(true);
+            if (indicadores[i] != null)
+            {
+                indicadores[i].SetActive(true);
+                puntosVisibles++;
+            }
         }
 
-        Debug.Log($"{name}: desarme iniciado con {piezas.Length} piezas.");
+        Debug.Log($"{name}: desarme iniciado con {piezas.Length} piezas y {puntosVisibles} puntos de destino.");
     }
 
     private void MostrarObjetosOcultables(bool visibles)
