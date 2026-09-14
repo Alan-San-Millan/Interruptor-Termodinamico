@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 // Herramienta de Editor para configurar automáticamente el juego de desarme
 // (etapa de corto circuito) a partir de la convención de nombres del proyecto:
@@ -11,7 +12,15 @@ public static class DisassemblyGameSetup
 {
     private static readonly Regex PiezaRegex = new Regex(@"^pieza\d+$", RegexOptions.IgnoreCase);
 
-    private const string RutaMaterialIndicador = "Assets/Switch/Mat_IndicadorDesarme.mat";
+    private const string RutaMaterialIndicador = "Assets/Switch/Mat_PuntoDestino.mat";
+
+    // Dónde se apilan las piezas sueltas, en coordenadas de pantalla (0 = borde
+    // izquierdo, 1 = borde derecho). Ajustá estos valores si las piezas tapan
+    // los botones de la interfaz o quedan muy al borde.
+    private static readonly float[] ColumnasIzquierda = { 0.07f, 0.19f };
+    private static readonly float[] ColumnasDerecha = { 0.66f, 0.79f };
+    private const float AlturaMinima = 0.15f;
+    private const float AlturaMaxima = 0.85f;
 
     [MenuItem("Tools/Interruptor/Configurar Juego de Desarme")]
     public static void ConfigurarJuegoDeDesarme()
@@ -95,22 +104,23 @@ public static class DisassemblyGameSetup
             Undo.RegisterCreatedObjectUndo(contenedorDesarmadas, "Crear PosicionesDesarmadas");
         }
 
-        // Calculamos el tamaño real de la carcasa/modelo armado (bounds de
-        // todos sus renderers) para poder ubicar las piezas dispersas
-        // claramente AFUERA de ella, con un espaciado proporcional a su
-        // escala real (no un valor fijo que puede quedar minúsculo o gigante
-        // según las unidades del modelo).
-        Bounds boundsModelo = CalcularBoundsModelo(piezasEncontradas);
+        Camera cam = Camera.main;
+        if (cam == null)
+        {
+            Debug.LogError("DisassemblyGameSetup: no hay ninguna cámara con el tag 'MainCamera'. No puedo ubicar las piezas en pantalla.");
+            return;
+        }
 
-        // Arrancamos la grilla justo a la derecha del borde derecho del
-        // modelo, con margen proporcional a su tamaño.
-        float margen = boundsModelo.extents.x * 0.4f + 0.1f;
-        float espaciado = Mathf.Max(boundsModelo.size.magnitude * 0.12f, margen * 0.5f);
-        Vector3 origen = new Vector3(boundsModelo.max.x + margen, boundsModelo.min.y, 0f);
+        // Las piezas se reparten mitad a la izquierda y mitad a la derecha de
+        // la pantalla, calculadas en coordenadas de cámara para garantizar que
+        // queden siempre dentro del campo visual.
+        int cantidadIzquierda = Mathf.CeilToInt(piezasEncontradas.Count / 2f);
+
+        Bounds boundsModelo = CalcularBoundsModelo(piezasEncontradas);
+        float tamanoPunto = Mathf.Max(boundsModelo.size.magnitude * 0.012f, 0.01f);
 
         var piezasParaManager = new List<DisassemblyGame.PiezaDesarme>();
 
-        int columnas = Mathf.CeilToInt(Mathf.Sqrt(piezasEncontradas.Count));
         int indice = 0;
 
         foreach (var (pieza, snap) in piezasEncontradas)
@@ -122,6 +132,9 @@ public static class DisassemblyGameSetup
                 drag = Undo.AddComponent<Piece3DDragAndDrop>(pieza.gameObject);
             }
             drag.snapPosition = snap;
+            // Tolerancia proporcional al modelo: con un valor fijo, en un
+            // modelo chico encajaría todo de una y en uno grande nada.
+            drag.positionTolerance = Mathf.Max(boundsModelo.size.magnitude * 0.05f, 0.05f);
 
             // Verificamos que tenga collider (necesario para poder clickearla)
             if (pieza.GetComponent<Collider>() == null)
@@ -141,18 +154,27 @@ public static class DisassemblyGameSetup
                 posDesarmada = go.transform;
             }
 
-            // Solo se corren en X/Y: conservan su propia profundidad (Z) y su
-            // rotación de armado, como si las hubieran sacado del interruptor
-            // y las dejaran flotando afuera de la carcasa, mirando igual que
-            // antes.
-            int fila = indice / columnas;
-            int columna = indice % columnas;
+            // Ubicamos la pieza en pantalla: la primera mitad a la izquierda
+            // del interruptor, la segunda mitad a la derecha. Conserva su
+            // propia distancia a la cámara y su rotación de armado, así que
+            // solo se corre lateral/verticalmente.
+            bool esIzquierda = indice < cantidadIzquierda;
+            float[] columnasLado = esIzquierda ? ColumnasIzquierda : ColumnasDerecha;
 
-            posDesarmada.position = new Vector3(
-                origen.x + columna * espaciado,
-                origen.y + fila * espaciado,
-                snap.position.z
-            );
+            int indiceEnLado = esIzquierda ? indice : indice - cantidadIzquierda;
+            int cantidadEnLado = esIzquierda ? cantidadIzquierda : piezasEncontradas.Count - cantidadIzquierda;
+            int filasPorLado = Mathf.CeilToInt(cantidadEnLado / (float)columnasLado.Length);
+
+            int columna = indiceEnLado % columnasLado.Length;
+            int fila = indiceEnLado / columnasLado.Length;
+
+            float alturaViewport = filasPorLado <= 1
+                ? (AlturaMinima + AlturaMaxima) * 0.5f
+                : Mathf.Lerp(AlturaMaxima, AlturaMinima, fila / (float)(filasPorLado - 1));
+
+            float profundidad = cam.WorldToViewportPoint(snap.position).z;
+            posDesarmada.position = cam.ViewportToWorldPoint(
+                new Vector3(columnasLado[columna], alturaViewport, profundidad));
             posDesarmada.rotation = snap.rotation;
             indice++;
 
@@ -179,13 +201,13 @@ public static class DisassemblyGameSetup
 
         Undo.RecordObject(manager, "Configurar piezas del DesarmeManager");
         manager.piezas = piezasParaManager.ToArray();
-
-        if (manager.materialIndicador == null)
-        {
-            manager.materialIndicador = ObtenerOCrearMaterialIndicador();
-        }
-
+        manager.materialIndicador = ObtenerOCrearMaterialIndicador();
+        manager.tamanoIndicador = tamanoPunto;
         EditorUtility.SetDirty(manager);
+
+        // El arrastre 3D depende del EventSystem, así que la cámara necesita un
+        // PhysicsRaycaster y ninguna UI invisible puede tapar la escena.
+        PrepararEntradaDePuntero(cam);
 
         // 4. Conectamos el manager en el GameManager si existe en la escena
         GameManager gm = Object.FindAnyObjectByType<GameManager>();
@@ -197,6 +219,38 @@ public static class DisassemblyGameSetup
         }
 
         Debug.Log($"DisassemblyGameSetup: configuradas {piezasParaManager.Count} piezas en '{managerGO.name}'.");
+    }
+
+    // Sin PhysicsRaycaster en la cámara, los colliders 3D nunca reciben
+    // eventos de puntero. Y una Image a pantalla completa con RaycastTarget
+    // activo (aunque sea invisible) se come todos los clicks antes de que
+    // lleguen al modelo.
+    private static void PrepararEntradaDePuntero(Camera cam)
+    {
+        if (cam.GetComponent<PhysicsRaycaster>() == null)
+        {
+            Undo.AddComponent<PhysicsRaycaster>(cam.gameObject);
+            Debug.Log($"DisassemblyGameSetup: se agregó un PhysicsRaycaster a '{cam.name}' (necesario para arrastrar piezas 3D).");
+        }
+
+        foreach (UnityEngine.UI.Image img in Object.FindObjectsByType<UnityEngine.UI.Image>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            if (!img.raycastTarget) continue;
+            if (img.GetComponent<UnityEngine.UI.Selectable>() != null) continue; // botones, etc: no tocar
+
+            RectTransform rt = img.rectTransform;
+            bool ocupaPantallaCompleta =
+                rt.anchorMin == Vector2.zero && rt.anchorMax == Vector2.one &&
+                rt.sizeDelta.x <= 0.01f && rt.sizeDelta.y <= 0.01f;
+
+            if (ocupaPantallaCompleta && img.color.a <= 0.01f)
+            {
+                Undo.RecordObject(img, "Desbloquear raycast del panel");
+                img.raycastTarget = false;
+                EditorUtility.SetDirty(img);
+                Debug.Log($"DisassemblyGameSetup: se desactivó 'Raycast Target' en '{img.name}' (imagen invisible a pantalla completa que bloqueaba los clicks).");
+            }
+        }
     }
 
     // Bounds combinado de todos los renderers de las piezas (mecanismo +
@@ -246,30 +300,22 @@ public static class DisassemblyGameSetup
         Material existente = AssetDatabase.LoadAssetAtPath<Material>(RutaMaterialIndicador);
         if (existente != null) return existente;
 
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
         if (shader == null)
         {
-            Debug.LogWarning("DisassemblyGameSetup: no se encontró un shader URP/Standard para crear el material indicador.");
+            Debug.LogWarning("DisassemblyGameSetup: no se encontró un shader Unlit para crear el material del punto.");
             return null;
         }
 
-        Material mat = new Material(shader) { name = "Mat_IndicadorDesarme" };
+        Material mat = new Material(shader) { name = "Mat_PuntoDestino" };
 
-        // Configuración de transparencia (URP Lit)
-        mat.SetFloat("_Surface", 1f); // Transparent
-        mat.SetFloat("_Blend", 0f);   // Alpha
-        mat.SetOverrideTag("RenderType", "Transparent");
-        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        mat.SetInt("_ZWrite", 0);
-        mat.DisableKeyword("_ALPHATEST_ON");
-        mat.EnableKeyword("_ALPHABLEND_ON");
-        mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
-
-        Color colorIndicador = new Color(0.3f, 0.8f, 1f, 0.35f);
-        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", colorIndicador);
-        if (mat.HasProperty("_Color")) mat.SetColor("_Color", colorIndicador);
+        // Verde plano, dibujado por encima del resto para que no quede tapado
+        // por la carcasa ni por otras piezas.
+        Color verde = new Color(0.15f, 0.9f, 0.25f, 1f);
+        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", verde);
+        if (mat.HasProperty("_Color")) mat.SetColor("_Color", verde);
+        if (mat.HasProperty("_ZTest")) mat.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+        mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Overlay;
 
         AssetDatabase.CreateAsset(mat, RutaMaterialIndicador);
         AssetDatabase.SaveAssets();

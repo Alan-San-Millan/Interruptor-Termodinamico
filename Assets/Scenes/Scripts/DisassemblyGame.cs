@@ -27,11 +27,11 @@ public class DisassemblyGame : MonoBehaviour
     [Tooltip("Panel que se muestra al colocar todas las piezas correctamente")]
     public GameObject panelCompletado;
 
-    [Header("Indicador visual de destino (opcional)")]
-    [Tooltip("Material semi-transparente para marcar cada posición correcta, sin indicar qué pieza va ahí")]
+    [Header("Punto verde de destino (opcional)")]
+    [Tooltip("Material del punto que marca cada posición correcta, sin indicar qué pieza va ahí")]
     public Material materialIndicador;
 
-    [Tooltip("Tamaño del cubo indicador")]
+    [Tooltip("Diámetro del punto, en unidades del mundo")]
     public float tamanoIndicador = 0.25f;
 
     private GameObject[] indicadores;
@@ -66,25 +66,36 @@ public class DisassemblyGame : MonoBehaviour
         }
     }
 
+    // Punto verde en el centro exacto del destino de la pieza. No dice qué
+    // pieza va ahí: solo marca que ese hueco espera una.
     private GameObject CrearIndicador(PiezaDesarme p)
     {
         if (materialIndicador == null) return null;
 
-        GameObject ind = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        ind.name = "Indicador_" + p.pieza.name;
-        ind.transform.SetParent(p.pieza.snapPosition, worldPositionStays: false);
-        ind.transform.localPosition = Vector3.zero;
-        ind.transform.localRotation = Quaternion.identity;
-        ind.transform.localScale = Vector3.one * tamanoIndicador;
+        GameObject punto = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        punto.name = "Punto_" + p.pieza.name;
+        punto.transform.SetParent(p.pieza.snapPosition, worldPositionStays: false);
+        punto.transform.localPosition = Vector3.zero;
+        punto.transform.localRotation = Quaternion.identity;
 
-        Collider col = ind.GetComponent<Collider>();
+        // Compensamos la escala heredada para que el punto mida siempre lo
+        // mismo en unidades del mundo, sin importar la escala del modelo.
+        Vector3 escalaPadre = p.pieza.snapPosition.lossyScale;
+        punto.transform.localScale = new Vector3(
+            tamanoIndicador / Mathf.Max(Mathf.Abs(escalaPadre.x), 0.0001f),
+            tamanoIndicador / Mathf.Max(Mathf.Abs(escalaPadre.y), 0.0001f),
+            tamanoIndicador / Mathf.Max(Mathf.Abs(escalaPadre.z), 0.0001f)
+        );
+
+        // Sin collider, para que no bloquee el arrastre de las piezas.
+        Collider col = punto.GetComponent<Collider>();
         if (col != null) Destroy(col);
 
-        Renderer rend = ind.GetComponent<Renderer>();
+        Renderer rend = punto.GetComponent<Renderer>();
         if (rend != null) rend.sharedMaterial = materialIndicador;
 
-        ind.SetActive(false);
-        return ind;
+        punto.SetActive(false);
+        return punto;
     }
 
     public void IniciarJuego()

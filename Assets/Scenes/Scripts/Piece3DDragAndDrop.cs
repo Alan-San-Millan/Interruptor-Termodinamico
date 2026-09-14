@@ -1,59 +1,57 @@
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
 
 // Arrastre en 3D de una pieza del modelo hasta su posición correcta.
-// Se usa en la etapa de "armado tras corto circuito": el modelo queda desarmado
-// (solo la carcasa) y el usuario debe arrastrar cada pieza a su lugar.
-public class Piece3DDragAndDrop : MonoBehaviour
+// Usa el sistema de eventos (EventSystem + PhysicsRaycaster en la cámara) en
+// lugar de OnMouseDown/OnMouseDrag, porque el proyecto está configurado con el
+// Input System nuevo, donde esos mensajes nunca se disparan.
+public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
     [Tooltip("Transform que marca la posición/rotación correcta de esta pieza")]
     public Transform snapPosition;
 
+    [Tooltip("Qué tan cerca del destino hay que soltarla para que encaje")]
     public float positionTolerance = 0.5f;
-    public float rotationTolerance = 15f;
 
     [Tooltip("Se dispara una sola vez, cuando la pieza encaja correctamente")]
     public UnityEvent onPiezaColocada;
 
-    private Camera mainCamera;
-    private bool isDragging = false;
     private bool colocada = false;
     private float distanciaCamara;
     private Vector3 offsetArrastre;
 
-    void Awake()
-    {
-        mainCamera = Camera.main;
-    }
-
-    void OnMouseDown()
+    public void OnPointerDown(PointerEventData eventData)
     {
         if (colocada) return;
 
-        isDragging = true;
-        distanciaCamara = Vector3.Distance(mainCamera.transform.position, transform.position);
+        Camera cam = CamaraDe(eventData);
+        if (cam == null) return;
 
-        Vector3 puntoEnPlano = PuntoEnPlanoDeArrastre(Input.mousePosition);
-        offsetArrastre = transform.position - puntoEnPlano;
+        distanciaCamara = Vector3.Distance(cam.transform.position, transform.position);
+        offsetArrastre = transform.position - PuntoEnPlanoDeArrastre(eventData, cam);
     }
 
-    void OnMouseDrag()
+    public void OnBeginDrag(PointerEventData eventData)
     {
-        if (!isDragging || colocada) return;
-
-        Vector3 puntoEnPlano = PuntoEnPlanoDeArrastre(Input.mousePosition);
-        transform.position = puntoEnPlano + offsetArrastre;
+        // El offset ya se calculó en OnPointerDown; acá no hace falta nada más.
     }
 
-    void OnMouseUp()
+    public void OnDrag(PointerEventData eventData)
     {
         if (colocada) return;
-        isDragging = false;
 
-        bool posicionOk = Vector3.Distance(transform.position, snapPosition.position) <= positionTolerance;
-        bool rotacionOk = Quaternion.Angle(transform.rotation, snapPosition.rotation) <= rotationTolerance;
+        Camera cam = CamaraDe(eventData);
+        if (cam == null) return;
 
-        if (posicionOk && rotacionOk)
+        transform.position = PuntoEnPlanoDeArrastre(eventData, cam) + offsetArrastre;
+    }
+
+    public void OnEndDrag(PointerEventData eventData)
+    {
+        if (colocada) return;
+
+        if (Vector3.Distance(transform.position, snapPosition.position) <= positionTolerance)
         {
             transform.position = snapPosition.position;
             transform.rotation = snapPosition.rotation;
@@ -67,13 +65,17 @@ public class Piece3DDragAndDrop : MonoBehaviour
         }
     }
 
-    // Proyecta el mouse sobre un plano perpendicular a la cámara, a la distancia
-    // en que estaba la pieza al empezar el arrastre. Evita depender de colliders
-    // de fondo (que pueden no existir una vez desarmado el modelo).
-    private Vector3 PuntoEnPlanoDeArrastre(Vector3 mousePos)
+    private Camera CamaraDe(PointerEventData eventData)
     {
-        Ray ray = mainCamera.ScreenPointToRay(mousePos);
-        Plane plano = new Plane(-mainCamera.transform.forward, mainCamera.transform.position + mainCamera.transform.forward * distanciaCamara);
+        return eventData.pressEventCamera != null ? eventData.pressEventCamera : Camera.main;
+    }
+
+    // Proyecta el puntero sobre un plano perpendicular a la cámara, a la
+    // distancia en que estaba la pieza al empezar el arrastre.
+    private Vector3 PuntoEnPlanoDeArrastre(PointerEventData eventData, Camera cam)
+    {
+        Ray ray = cam.ScreenPointToRay(eventData.position);
+        Plane plano = new Plane(-cam.transform.forward, cam.transform.position + cam.transform.forward * distanciaCamara);
 
         if (plano.Raycast(ray, out float distanciaHit))
         {
@@ -86,7 +88,6 @@ public class Piece3DDragAndDrop : MonoBehaviour
     public void ReiniciarPieza(Vector3 posicionInicial, Quaternion rotacionInicial)
     {
         colocada = false;
-        isDragging = false;
         this.enabled = true;
         gameObject.SetActive(true);
         transform.position = posicionInicial;
