@@ -160,14 +160,21 @@ public static class DisassemblyGameSetup
         manager.tamanoIndicador = tamanoPunto;
         manager.objetosAOcultar = RecolectarObjetosAOcultar(piezasEncontradas, piezasFijas);
 
+        GameManager gameManager = Object.FindAnyObjectByType<GameManager>();
+
         if (manager.textoPuntaje == null)
         {
             manager.textoPuntaje = CrearTextoPuntaje();
         }
-        else if (manager.textoPuntaje.name == "PuntajeDesarme")
+        if (manager.textoPuntaje != null && manager.textoPuntaje.name == "PuntajeDesarme")
         {
-            // Lo reubicamos si es el que generamos nosotros
-            UbicarArribaIzquierda(manager.textoPuntaje.rectTransform);
+            // Lo dejamos donde está el contador del primer juego
+            CopiarUbicacionDelContador(manager.textoPuntaje, gameManager);
+        }
+
+        if (manager.botonContinuar == null)
+        {
+            manager.botonContinuar = CrearBotonContinuar(manager);
         }
 
         EditorUtility.SetDirty(manager);
@@ -188,7 +195,7 @@ public static class DisassemblyGameSetup
         }
 
         // 4. Conectamos el manager en el GameManager si existe en la escena
-        GameManager gm = Object.FindAnyObjectByType<GameManager>();
+        GameManager gm = gameManager;
         if (gm != null && gm.disassemblyGame == null)
         {
             Undo.RecordObject(gm, "Asignar DesarmeManager en GameManager");
@@ -217,6 +224,10 @@ public static class DisassemblyGameSetup
             foreach (Renderer r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (TieneAncestroEn(r.transform, raicesExcluidas)) continue;
+                // Los que ya vienen apagados (marcadores _Encendido/_Apagado de
+                // las animaciones) no hay que tocarlos: si entraran a la lista,
+                // al restaurar se encenderían y se verían piezas duplicadas.
+                if (!r.gameObject.activeSelf) continue;
                 if (!boundsCarcasa.Contains(r.bounds.center)) continue;
                 // Descarta cosas enormes que engloban la carcasa (el piso, etc.)
                 if (r.bounds.size.magnitude > boundsCarcasa.size.magnitude) continue;
@@ -263,15 +274,87 @@ public static class DisassemblyGameSetup
         return total ?? new Bounds(Vector3.zero, Vector3.zero);
     }
 
-    private static void UbicarArribaIzquierda(RectTransform rt)
+    // Deja el marcador exactamente donde está el del primer juego, copiando su
+    // anclaje y su posición en pantalla.
+    private static void CopiarUbicacionDelContador(TMPro.TextMeshProUGUI destino, GameManager gm)
     {
+        RectTransform rt = destino.rectTransform;
         Undo.RecordObject(rt, "Ubicar marcador");
-        rt.anchorMin = new Vector2(0f, 1f);
-        rt.anchorMax = new Vector2(0f, 1f);
-        rt.pivot = new Vector2(0f, 1f);
-        rt.anchoredPosition = new Vector2(30f, -30f);
-        rt.sizeDelta = new Vector2(420f, 70f);
+        Undo.RecordObject(destino, "Ubicar marcador");
+
+        TMPro.TextMeshProUGUI original = gm != null ? gm.scoreText : null;
+        if (original != null)
+        {
+            RectTransform origen = original.rectTransform;
+            rt.anchorMin = origen.anchorMin;
+            rt.anchorMax = origen.anchorMax;
+            rt.pivot = origen.pivot;
+            rt.sizeDelta = origen.sizeDelta;
+            rt.position = origen.position; // misma posición en pantalla
+            destino.fontSize = original.fontSize;
+            destino.alignment = original.alignment;
+        }
+        else
+        {
+            // Sin referencia, lo pegamos a la esquina superior izquierda
+            rt.anchorMin = new Vector2(0f, 1f);
+            rt.anchorMax = new Vector2(0f, 1f);
+            rt.pivot = new Vector2(0f, 1f);
+            rt.anchoredPosition = new Vector2(10f, -10f);
+            rt.sizeDelta = new Vector2(300f, 50f);
+            Debug.LogWarning("DisassemblyGameSetup: no encontré el contador del primer juego (GameManager.scoreText), usé la esquina por defecto.");
+        }
+
         EditorUtility.SetDirty(rt);
+        EditorUtility.SetDirty(destino);
+    }
+
+    // Copia uno de los botones existentes y lo ubica justo entre los dos, para
+    // que se vea igual que el resto de la interfaz.
+    private static GameObject CrearBotonContinuar(DisassemblyGame manager)
+    {
+        Canvas canvas = Object.FindAnyObjectByType<Canvas>();
+        UnityEngine.UI.Button botonCorto = BuscarBotonEn("PanelCortoCircuito");
+        UnityEngine.UI.Button botonSobre = BuscarBotonEn("PanelSobrecarga");
+
+        if (canvas == null || botonCorto == null || botonSobre == null)
+        {
+            Debug.LogWarning("DisassemblyGameSetup: no encontré los botones de Corto Circuito/Sobrecarga, no pude crear el botón de continuar.");
+            return null;
+        }
+
+        GameObject nuevo = Object.Instantiate(botonSobre.gameObject, canvas.transform);
+        nuevo.name = "BotonContinuar";
+        Undo.RegisterCreatedObjectUndo(nuevo, "Crear BotonContinuar");
+
+        // Justo en el medio de los dos botones
+        var rt = nuevo.GetComponent<RectTransform>();
+        rt.position = (botonCorto.transform.position + botonSobre.transform.position) * 0.5f;
+
+        var etiqueta = nuevo.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+        if (etiqueta != null) etiqueta.text = "Continuar";
+
+        var boton = nuevo.GetComponent<UnityEngine.UI.Button>();
+        for (int i = boton.onClick.GetPersistentEventCount() - 1; i >= 0; i--)
+        {
+            UnityEditor.Events.UnityEventTools.RemovePersistentListener(boton.onClick, i);
+        }
+        UnityEditor.Events.UnityEventTools.AddPersistentListener(
+            boton.onClick, new UnityEngine.Events.UnityAction(manager.VolverASeleccion));
+
+        nuevo.SetActive(false);
+        Debug.Log("DisassemblyGameSetup: se creó 'BotonContinuar' entre los dos botones existentes.");
+        return nuevo;
+    }
+
+    private static UnityEngine.UI.Button BuscarBotonEn(string nombrePanel)
+    {
+        foreach (GameObject panel in ObjetosLlamados(nombrePanel))
+        {
+            var boton = panel.GetComponentInChildren<UnityEngine.UI.Button>(true);
+            if (boton != null) return boton;
+        }
+        return null;
     }
 
     private static TMPro.TextMeshProUGUI CrearTextoPuntaje()
@@ -286,8 +369,6 @@ public static class DisassemblyGameSetup
         var go = new GameObject("PuntajeDesarme", typeof(RectTransform));
         Undo.RegisterCreatedObjectUndo(go, "Crear PuntajeDesarme");
         go.transform.SetParent(canvas.transform, worldPositionStays: false);
-
-        UbicarArribaIzquierda(go.GetComponent<RectTransform>());
 
         var texto = go.AddComponent<TMPro.TextMeshProUGUI>();
         texto.text = "Puntuación: 0";

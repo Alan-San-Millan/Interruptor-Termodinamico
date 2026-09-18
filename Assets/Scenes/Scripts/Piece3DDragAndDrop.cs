@@ -19,8 +19,13 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
     [Tooltip("Se dispara cuando la pieza encaja correctamente")]
     public UnityEvent onPiezaColocada;
 
-    [Tooltip("Se dispara cuando se suelta la pieza lejos de su destino")]
+    [Tooltip("Se dispara solo al soltar la pieza sobre el destino de OTRA pieza")]
     public UnityEvent onPiezaFallada;
+
+    // Destinos del resto de las piezas. Los carga el DisassemblyGame: sirven
+    // para distinguir "la soltó en el lugar equivocado" de "la soltó en
+    // cualquier lado sin intentar colocarla".
+    [System.NonSerialized] public Transform[] otrosDestinos;
 
     private bool colocada = false;
     private float profundidadCamara;
@@ -73,10 +78,10 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
 
         // El margen se mide en pantalla, no en el mundo: es lo que ve el
         // jugador y no depende de la profundidad ni de la escala del modelo.
+        float margenEnPixeles = Screen.height * margenDeError;
         Vector2 enPantalla = cam.WorldToScreenPoint(transform.position);
-        Vector2 destinoEnPantalla = cam.WorldToScreenPoint(snapPosition.position);
 
-        if (Vector2.Distance(enPantalla, destinoEnPantalla) <= Screen.height * margenDeError)
+        if (Vector2.Distance(enPantalla, cam.WorldToScreenPoint(snapPosition.position)) <= margenEnPixeles)
         {
             transform.position = snapPosition.position;
             transform.rotation = snapPosition.rotation;
@@ -85,16 +90,39 @@ public class Piece3DDragAndDrop : MonoBehaviour, IPointerDownHandler, IBeginDrag
 
             Debug.Log($"{name}: pieza colocada correctamente.");
             onPiezaColocada?.Invoke();
+            return;
         }
-        else
+
+        // Solo se penaliza si la soltó encima del destino de otra pieza. Si la
+        // soltó en cualquier otro lado simplemente la movió de lugar: puede
+        // haberla agarrado sin querer, y eso no debería costarle puntos.
+        if (EstaSobreOtroDestino(cam, margenEnPixeles))
         {
-            // Como en el juego de arrastrar nombres: vuelve a su lugar de origen
             transform.position = posicionDispersa;
             transform.rotation = rotacionDispersa;
 
-            Debug.Log($"{name}: posición incorrecta, vuelve al inicio.");
+            Debug.Log($"{name}: ahí va otra pieza, vuelve al inicio.");
             onPiezaFallada?.Invoke();
         }
+    }
+
+    private bool EstaSobreOtroDestino(Camera cam, float margenEnPixeles)
+    {
+        if (otrosDestinos == null) return false;
+
+        Vector2 enPantalla = cam.WorldToScreenPoint(transform.position);
+
+        foreach (Transform destino in otrosDestinos)
+        {
+            if (destino == null || destino == snapPosition) continue;
+
+            if (Vector2.Distance(enPantalla, cam.WorldToScreenPoint(destino.position)) <= margenEnPixeles)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private Camera CamaraDe(PointerEventData eventData)

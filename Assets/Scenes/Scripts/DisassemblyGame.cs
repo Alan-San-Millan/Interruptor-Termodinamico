@@ -40,6 +40,9 @@ public class DisassemblyGame : MonoBehaviour
     [Tooltip("Panel que se muestra al colocar todas las piezas correctamente")]
     public GameObject panelCompletado;
 
+    [Tooltip("Botón que aparece al terminar y devuelve a la pantalla de selección")]
+    public GameObject botonContinuar;
+
     [Header("Punto verde de destino")]
     [Tooltip("Material del punto que marca cada posición correcta, sin indicar qué pieza va ahí")]
     public Material materialIndicador;
@@ -48,6 +51,7 @@ public class DisassemblyGame : MonoBehaviour
     public float tamanoIndicador = 0.25f;
 
     private GameObject[] indicadores;
+    private bool[] estabanVisibles;
     private int piezasColocadas = 0;
     private int puntaje = 0;
     private bool juegoIniciado = false;
@@ -56,8 +60,20 @@ public class DisassemblyGame : MonoBehaviour
     {
         indicadores = new GameObject[piezas.Length];
 
-        // El marcador recién aparece cuando arranca el juego
+        // El marcador y el botón de continuar recién aparecen cuando toca
         if (textoPuntaje != null) textoPuntaje.gameObject.SetActive(false);
+        if (botonContinuar != null) botonContinuar.SetActive(false);
+
+        // Guardamos si cada objeto estaba visible de entrada: varios (como los
+        // marcadores _Encendido/_Apagado) vienen apagados a propósito y no hay
+        // que encenderlos al restaurar.
+        estabanVisibles = new bool[objetosAOcultar.Length];
+        for (int i = 0; i < objetosAOcultar.Length; i++)
+        {
+            estabanVisibles[i] = objetosAOcultar[i] != null && objetosAOcultar[i].activeSelf;
+        }
+
+        CargarDestinosCruzados();
 
         if (materialIndicador == null)
         {
@@ -221,11 +237,32 @@ public class DisassemblyGame : MonoBehaviour
         return cam.ViewportToWorldPoint(new Vector3(x, y, profundidad));
     }
 
+    // Cada pieza necesita conocer los destinos del resto para distinguir un
+    // intento fallido de un simple "la agarré sin querer y la solté".
+    private void CargarDestinosCruzados()
+    {
+        var destinos = new List<Transform>();
+        foreach (Piece3DDragAndDrop pieza in piezas)
+        {
+            if (pieza != null && pieza.snapPosition != null) destinos.Add(pieza.snapPosition);
+        }
+
+        Transform[] todos = destinos.ToArray();
+        foreach (Piece3DDragAndDrop pieza in piezas)
+        {
+            if (pieza != null) pieza.otrosDestinos = todos;
+        }
+    }
+
     private void MostrarObjetosOcultables(bool visibles)
     {
         for (int i = 0; i < objetosAOcultar.Length; i++)
         {
-            if (objetosAOcultar[i] != null) objetosAOcultar[i].SetActive(visibles);
+            if (objetosAOcultar[i] == null) continue;
+
+            // Al restaurar respetamos el estado original: los que ya venían
+            // apagados (marcadores de animación) siguen apagados.
+            objetosAOcultar[i].SetActive(visibles && estabanVisibles[i]);
         }
     }
 
@@ -267,15 +304,24 @@ public class DisassemblyGame : MonoBehaviour
     {
         juegoIniciado = false;
 
+        Debug.Log($"{name}: ¡modelo reensamblado correctamente! Puntaje final: {puntaje}");
+
+        if (panelCompletado != null) panelCompletado.SetActive(true);
+
+        // No volvemos solos a la pantalla de selección: el jugador decide
+        // cuándo, con el botón que aparece al costado.
+        if (botonContinuar != null) botonContinuar.SetActive(true);
+    }
+
+    // Lo llama el botón que aparece al terminar el juego.
+    public void VolverASeleccion()
+    {
+        if (botonContinuar != null) botonContinuar.SetActive(false);
+        if (panelCompletado != null) panelCompletado.SetActive(false);
+        if (textoPuntaje != null) textoPuntaje.gameObject.SetActive(false);
+
         // El interruptor vuelve a estar completo: reaparece el resto del
         // mecanismo y los botones de la interfaz.
         MostrarObjetosOcultables(true);
-
-        Debug.Log($"{name}: ¡modelo reensamblado correctamente! Puntaje final: {puntaje}");
-
-        if (panelCompletado != null)
-        {
-            panelCompletado.SetActive(true);
-        }
     }
 }
