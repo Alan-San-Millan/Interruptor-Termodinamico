@@ -159,6 +159,7 @@ public static class DisassemblyGameSetup
         manager.materialIndicador = ObtenerOCrearMaterialIndicador();
         manager.tamanoIndicador = tamanoPunto;
         manager.objetosAOcultar = RecolectarObjetosAOcultar(piezasEncontradas, piezasFijas);
+        manager.panelesSeleccion = RecolectarPanelesSeleccion();
 
         GameManager gameManager = Object.FindAnyObjectByType<GameManager>();
 
@@ -236,17 +237,26 @@ public static class DisassemblyGameSetup
             }
         }
 
-        // Los botones tienen que salir de la pantalla mientras se juega
+        Debug.Log($"DisassemblyGameSetup: {aOcultar.Count} objeto(s) del mecanismo se ocultarán durante el juego.");
+        return aOcultar.ToArray();
+    }
+
+    // Los paneles con los botones de elegir etapa: se ocultan al jugar y se
+    // muestran al volver. Van aparte del mecanismo porque en la escena
+    // arrancan apagados y aun así hay que encenderlos al terminar.
+    private static GameObject[] RecolectarPanelesSeleccion()
+    {
+        var paneles = new List<GameObject>();
+
         foreach (string nombrePanel in new[] { "PanelSobrecarga", "PanelCortoCircuito" })
         {
             foreach (GameObject panel in ObjetosLlamados(nombrePanel))
             {
-                if (!aOcultar.Contains(panel)) aOcultar.Add(panel);
+                if (!paneles.Contains(panel)) paneles.Add(panel);
             }
         }
 
-        Debug.Log($"DisassemblyGameSetup: {aOcultar.Count} objeto(s) se ocultarán durante el juego (mecanismo interior + botones).");
-        return aOcultar.ToArray();
+        return paneles.ToArray();
     }
 
     private static bool TieneAncestroEn(Transform t, HashSet<Transform> raices)

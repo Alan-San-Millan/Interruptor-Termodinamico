@@ -22,9 +22,13 @@ public class DisassemblyGame : MonoBehaviour
     public Vector2 franjaVertical = new Vector2(0.10f, 0.80f);
 
     [Header("Se ocultan mientras se juega")]
-    [Tooltip("Todo lo que debe desaparecer al empezar: el resto del mecanismo dentro " +
-             "de la carcasa y los botones de la interfaz. Vuelve al completar el juego.")]
+    [Tooltip("El resto del mecanismo dentro de la carcasa. Cada objeto vuelve al " +
+             "estado en el que estaba cuando se vuelve a la pantalla de selección.")]
     public GameObject[] objetosAOcultar;
+
+    [Tooltip("Paneles con los botones de elegir etapa. Se ocultan al jugar y se " +
+             "vuelven a mostrar siempre al terminar.")]
+    public GameObject[] panelesSeleccion;
 
     [Header("Puntaje")]
     [Tooltip("Texto donde se muestra el puntaje de esta etapa")]
@@ -153,6 +157,7 @@ public class DisassemblyGame : MonoBehaviour
 
         // Vaciamos la carcasa y sacamos los botones de la pantalla
         MostrarObjetosOcultables(false);
+        MostrarPanelesSeleccion(false);
 
         piezasColocadas = 0;
         puntaje = 0;
@@ -266,6 +271,16 @@ public class DisassemblyGame : MonoBehaviour
         }
     }
 
+    private void MostrarPanelesSeleccion(bool visibles)
+    {
+        // Estos siempre se muestran al volver, sin mirar su estado inicial: en
+        // la escena arrancan apagados porque la primera etapa es otra.
+        for (int i = 0; i < panelesSeleccion.Length; i++)
+        {
+            if (panelesSeleccion[i] != null) panelesSeleccion[i].SetActive(visibles);
+        }
+    }
+
     private void RegistrarPiezaColocada(int indice)
     {
         if (!juegoIniciado) return;
@@ -320,8 +335,9 @@ public class DisassemblyGame : MonoBehaviour
         if (panelCompletado != null) panelCompletado.SetActive(false);
         if (textoPuntaje != null) textoPuntaje.gameObject.SetActive(false);
 
-        // El interruptor vuelve a estar completo: reaparece el resto del
-        // mecanismo y los botones de la interfaz.
+        // El interruptor vuelve a estar completo y el jugador queda otra vez
+        // en la pantalla donde elige entre el juego y la animación.
         MostrarObjetosOcultables(true);
+        MostrarPanelesSeleccion(true);
     }
 }
