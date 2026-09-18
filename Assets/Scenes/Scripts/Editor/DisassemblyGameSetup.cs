@@ -14,21 +14,17 @@ public static class DisassemblyGameSetup
 
     private const string RutaMaterialIndicador = "Assets/Switch/Mat_PuntoDestino.mat";
 
-    // Dónde se apilan las piezas sueltas, en coordenadas de pantalla (0 = borde
-    // izquierdo, 1 = borde derecho). Ajustá estos valores si las piezas tapan
-    // los botones de la interfaz o quedan muy al borde.
-    private static readonly float[] ColumnasIzquierda = { 0.07f, 0.19f };
-    private static readonly float[] ColumnasDerecha = { 0.66f, 0.79f };
-    private const float AlturaMinima = 0.15f;
-    private const float AlturaMaxima = 0.85f;
+    // Piezas que quedan fuera del juego aunque tengan su Snap_: son idénticas
+    // entre sí o demasiado chicas, y adivinarlas sería injusto. Se mantienen
+    // en su posición original.
+    private static readonly HashSet<string> PiezasSiempreFijas =
+        new HashSet<string> { "pieza11", "pieza12", "pieza13", "pieza15" };
+
+    private static readonly Color ColorDeFondo = new Color(0.16f, 0.16f, 0.18f);
 
     [MenuItem("Tools/Interruptor/Configurar Juego de Desarme")]
     public static void ConfigurarJuegoDeDesarme()
     {
-        // 0. Piezas exclusivas de otras animaciones (Sobrecarga / Corto Circuito
-        // "lever trip"): no deben tocarse ni incluirse en el juego de desarme.
-        HashSet<string> nombresExcluidos = ObtenerNombresUsadosPorOtrosAnimadores();
-
         // 1. Buscamos TODAS las piezas (incluidas las inactivas, por si quedaron
         // mal apagadas por una corrida anterior de esta herramienta) y sus
         // Snap_ correspondientes.
@@ -43,8 +39,6 @@ public static class DisassemblyGameSetup
             if (!PiezaRegex.IsMatch(t.name)) continue;
             if (t.parent == null) continue;
 
-            bool esExcluida = nombresExcluidos.Contains(t.name.ToLowerInvariant());
-
             // Si quedó apagada por error (por ejemplo, por una corrida anterior
             // de esta misma herramienta), la reactivamos siempre.
             if (!t.gameObject.activeSelf)
@@ -54,10 +48,11 @@ public static class DisassemblyGameSetup
                 reactivadas++;
             }
 
-            if (esExcluida)
+            if (PiezasSiempreFijas.Contains(t.name.ToLowerInvariant()))
             {
-                // Es una pieza que ya controla Sobrecarga/CortoCircuito: la
-                // dejamos intacta, no forma parte del juego de desarme.
+                // Piezas idénticas entre sí o demasiado chicas: dejarlas en el
+                // juego lo haría injusto, así que se quedan en su sitio.
+                piezasFijas.Add(t);
                 continue;
             }
 
@@ -98,32 +93,33 @@ public static class DisassemblyGameSetup
             return;
         }
 
-        // 2. Buscamos (o creamos) el contenedor de posiciones dispersas
-        GameObject contenedorDesarmadas = GameObject.Find("PosicionesDesarmadas");
-        if (contenedorDesarmadas == null)
-        {
-            contenedorDesarmadas = new GameObject("PosicionesDesarmadas");
-            Undo.RegisterCreatedObjectUndo(contenedorDesarmadas, "Crear PosicionesDesarmadas");
-        }
-
         Camera cam = Camera.main;
         if (cam == null)
         {
-            Debug.LogError("DisassemblyGameSetup: no hay ninguna cámara con el tag 'MainCamera'. No puedo ubicar las piezas en pantalla.");
+            Debug.LogError("DisassemblyGameSetup: no hay ninguna cámara con el tag 'MainCamera'.");
             return;
         }
 
-        // Las piezas se reparten mitad a la izquierda y mitad a la derecha de
-        // la pantalla, calculadas en coordenadas de cámara para garantizar que
-        // queden siempre dentro del campo visual.
-        int cantidadIzquierda = Mathf.CeilToInt(piezasEncontradas.Count / 2f);
+        // Las posiciones sueltas ya no se guardan en la escena: se sortean en
+        // cada partida, así que el contenedor viejo sobra.
+        GameObject contenedorViejo = GameObject.Find("PosicionesDesarmadas");
+        if (contenedorViejo != null)
+        {
+            Undo.DestroyObjectImmediate(contenedorViejo);
+            Debug.Log("DisassemblyGameSetup: se eliminó 'PosicionesDesarmadas' (las posiciones ahora se sortean en cada partida).");
+        }
+
+        // Las piezas que quedan fuera del juego no deben poder arrastrarse
+        foreach (Transform fija in piezasFijas)
+        {
+            Piece3DDragAndDrop sobrante = fija.GetComponent<Piece3DDragAndDrop>();
+            if (sobrante != null) Undo.DestroyObjectImmediate(sobrante);
+        }
 
         Bounds boundsModelo = CalcularBoundsModelo(piezasEncontradas);
         float tamanoPunto = Mathf.Max(boundsModelo.size.magnitude * 0.012f, 0.01f);
 
-        var piezasParaManager = new List<DisassemblyGame.PiezaDesarme>();
-
-        int indice = 0;
+        var piezasParaManager = new List<Piece3DDragAndDrop>();
 
         foreach (var (pieza, snap) in piezasEncontradas)
         {
@@ -141,47 +137,7 @@ public static class DisassemblyGameSetup
                 Debug.LogWarning($"DisassemblyGameSetup: {pieza.name} no tiene Collider, no se va a poder arrastrar.");
             }
 
-            // Generamos la posición dispersa en una grilla, bien separada del
-            // modelo armado.
-            string nombreDesarmada = "Desarmada_" + pieza.name;
-            Transform posDesarmada = contenedorDesarmadas.transform.Find(nombreDesarmada);
-            if (posDesarmada == null)
-            {
-                GameObject go = new GameObject(nombreDesarmada);
-                Undo.RegisterCreatedObjectUndo(go, "Crear " + nombreDesarmada);
-                go.transform.SetParent(contenedorDesarmadas.transform, worldPositionStays: false);
-                posDesarmada = go.transform;
-            }
-
-            // Ubicamos la pieza en pantalla: la primera mitad a la izquierda
-            // del interruptor, la segunda mitad a la derecha. Conserva su
-            // propia distancia a la cámara y su rotación de armado, así que
-            // solo se corre lateral/verticalmente.
-            bool esIzquierda = indice < cantidadIzquierda;
-            float[] columnasLado = esIzquierda ? ColumnasIzquierda : ColumnasDerecha;
-
-            int indiceEnLado = esIzquierda ? indice : indice - cantidadIzquierda;
-            int cantidadEnLado = esIzquierda ? cantidadIzquierda : piezasEncontradas.Count - cantidadIzquierda;
-            int filasPorLado = Mathf.CeilToInt(cantidadEnLado / (float)columnasLado.Length);
-
-            int columna = indiceEnLado % columnasLado.Length;
-            int fila = indiceEnLado / columnasLado.Length;
-
-            float alturaViewport = filasPorLado <= 1
-                ? (AlturaMinima + AlturaMaxima) * 0.5f
-                : Mathf.Lerp(AlturaMaxima, AlturaMinima, fila / (float)(filasPorLado - 1));
-
-            float profundidad = cam.WorldToViewportPoint(snap.position).z;
-            posDesarmada.position = cam.ViewportToWorldPoint(
-                new Vector3(columnasLado[columna], alturaViewport, profundidad));
-            posDesarmada.rotation = snap.rotation;
-            indice++;
-
-            piezasParaManager.Add(new DisassemblyGame.PiezaDesarme
-            {
-                pieza = drag,
-                posDesarmada = posDesarmada
-            });
+            piezasParaManager.Add(drag);
         }
 
         // 3. Buscamos (o creamos) el DesarmeManager y le cargamos la lista
@@ -219,6 +175,17 @@ public static class DisassemblyGameSetup
         // El arrastre 3D depende del EventSystem, así que la cámara necesita un
         // PhysicsRaycaster y ninguna UI invisible puede tapar la escena.
         PrepararEntradaDePuntero(cam);
+
+        // Fondo gris oscuro en lugar del skybox de Unity, desde el primer juego
+        // y durante todas las etapas.
+        if (cam.clearFlags != CameraClearFlags.SolidColor || cam.backgroundColor != ColorDeFondo)
+        {
+            Undo.RecordObject(cam, "Fondo gris oscuro");
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = ColorDeFondo;
+            EditorUtility.SetDirty(cam);
+            Debug.Log($"DisassemblyGameSetup: fondo de '{cam.name}' cambiado a gris oscuro.");
+        }
 
         // 4. Conectamos el manager en el GameManager si existe en la escena
         GameManager gm = Object.FindAnyObjectByType<GameManager>();
@@ -435,28 +402,4 @@ public static class DisassemblyGameSetup
         return mat;
     }
 
-    private static HashSet<string> ObtenerNombresUsadosPorOtrosAnimadores()
-    {
-        var nombres = new HashSet<string>();
-
-        foreach (SwitchOverloadAnimator anim in Object.FindObjectsByType<SwitchOverloadAnimator>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-        {
-            if (anim.piezas == null) continue;
-            foreach (var p in anim.piezas)
-            {
-                if (p.pieza != null) nombres.Add(p.pieza.name.ToLowerInvariant());
-            }
-        }
-
-        foreach (ShortCircuitAnimator anim in Object.FindObjectsByType<ShortCircuitAnimator>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-        {
-            if (anim.piezas == null) continue;
-            foreach (var p in anim.piezas)
-            {
-                if (p.pieza != null) nombres.Add(p.pieza.name.ToLowerInvariant());
-            }
-        }
-
-        return nombres;
-    }
 }

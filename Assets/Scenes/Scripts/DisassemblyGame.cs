@@ -1,23 +1,25 @@
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 
 // Etapa de "desarmado del interruptor": al empezar, la carcasa queda vacía y
-// las piezas aparecen repartidas a los costados de la pantalla, con un punto
+// las piezas se reparten al azar a los costados de la pantalla, con un punto
 // verde marcando cada destino. El usuario debe arrastrar cada pieza a su lugar.
 public class DisassemblyGame : MonoBehaviour
 {
-    [System.Serializable]
-    public class PiezaDesarme
-    {
-        [Tooltip("La pieza del modelo que hay que volver a colocar")]
-        public Piece3DDragAndDrop pieza;
-
-        [Tooltip("Posición/rotación dispersa donde aparece la pieza al desarmar")]
-        public Transform posDesarmada;
-    }
-
     [Header("Piezas del desarme")]
-    public PiezaDesarme[] piezas;
+    [Tooltip("Piezas que el jugador tiene que volver a colocar. Cada una lleva su propio Snap Position.")]
+    public Piece3DDragAndDrop[] piezas;
+
+    [Header("Zonas donde caen las piezas (coordenadas de pantalla)")]
+    [Tooltip("Franja izquierda: x mínimo y máximo, siendo 0 el borde izquierdo y 1 el derecho")]
+    public Vector2 franjaIzquierda = new Vector2(0.04f, 0.26f);
+
+    [Tooltip("Franja derecha: x mínimo y máximo")]
+    public Vector2 franjaDerecha = new Vector2(0.66f, 0.96f);
+
+    [Tooltip("Alto utilizable: y mínimo y máximo, siendo 0 abajo y 1 arriba")]
+    public Vector2 franjaVertical = new Vector2(0.10f, 0.80f);
 
     [Header("Se ocultan mientras se juega")]
     [Tooltip("Todo lo que debe desaparecer al empezar: el resto del mecanismo dentro " +
@@ -64,42 +66,42 @@ public class DisassemblyGame : MonoBehaviour
 
         for (int i = 0; i < piezas.Length; i++)
         {
-            PiezaDesarme p = piezas[i];
-            if (p.pieza == null || p.posDesarmada == null || p.pieza.snapPosition == null)
+            Piece3DDragAndDrop pieza = piezas[i];
+            if (pieza == null || pieza.snapPosition == null)
             {
-                Debug.LogWarning($"{name}: el elemento {i} de 'Piezas' tiene una referencia sin asignar (Pieza/Pos Desarmada/Snap Position).");
+                Debug.LogWarning($"{name}: el elemento {i} de 'Piezas' está sin asignar o no tiene Snap Position.");
                 continue;
             }
 
             // Nos suscribimos por código para no depender de que cada pieza
             // tenga cableado su UnityEvent manualmente en el Inspector.
             int indice = i;
-            p.pieza.onPiezaColocada.AddListener(() => RegistrarPiezaColocada(indice));
-            p.pieza.onPiezaFallada.AddListener(RegistrarError);
+            pieza.onPiezaColocada.AddListener(() => RegistrarPiezaColocada(indice));
+            pieza.onPiezaFallada.AddListener(RegistrarError);
 
             // Por defecto el modelo se ve armado: cada pieza arranca en su
             // posición correcta (Snap) y sin poder arrastrarse todavía.
-            p.pieza.transform.position = p.pieza.snapPosition.position;
-            p.pieza.transform.rotation = p.pieza.snapPosition.rotation;
-            p.pieza.enabled = false;
+            pieza.transform.position = pieza.snapPosition.position;
+            pieza.transform.rotation = pieza.snapPosition.rotation;
+            pieza.enabled = false;
 
-            indicadores[i] = CrearIndicador(p);
+            indicadores[i] = CrearIndicador(pieza);
         }
     }
 
     // Punto verde en el centro exacto del destino de la pieza. No dice qué
     // pieza va ahí: solo marca que ese hueco espera una.
-    private GameObject CrearIndicador(PiezaDesarme p)
+    private GameObject CrearIndicador(Piece3DDragAndDrop pieza)
     {
         if (materialIndicador == null) return null;
 
         GameObject punto = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        punto.name = "Punto_" + p.pieza.name;
+        punto.name = "Punto_" + pieza.name;
 
         // Cuelga del manager, NO del Snap: los Snap son copias con malla de las
         // piezas y se ocultan durante el juego, así que se llevarían el punto.
         punto.transform.SetParent(transform, worldPositionStays: false);
-        punto.transform.position = p.pieza.snapPosition.position;
+        punto.transform.position = pieza.snapPosition.position;
         punto.transform.rotation = Quaternion.identity;
 
         // Compensamos la escala heredada para que el punto mida siempre lo
@@ -124,6 +126,13 @@ public class DisassemblyGame : MonoBehaviour
 
     public void IniciarJuego()
     {
+        Camera cam = Camera.main;
+        if (cam == null)
+        {
+            Debug.LogError($"{name}: no hay cámara con el tag 'MainCamera', no puedo repartir las piezas.");
+            return;
+        }
+
         if (panelCompletado != null) panelCompletado.SetActive(false);
 
         // Vaciamos la carcasa y sacamos los botones de la pantalla
@@ -136,14 +145,18 @@ public class DisassemblyGame : MonoBehaviour
         if (textoPuntaje != null) textoPuntaje.gameObject.SetActive(true);
         ActualizarTextoPuntaje();
 
+        // El reparto se sortea en cada partida, así que las piezas nunca caen
+        // dos veces en el mismo lugar.
+        List<Rect> celdas = RepartirCeldas(piezas.Length);
+
         int puntosVisibles = 0;
         for (int i = 0; i < piezas.Length; i++)
         {
-            PiezaDesarme p = piezas[i];
-            if (p.pieza == null || p.posDesarmada == null) continue;
+            Piece3DDragAndDrop pieza = piezas[i];
+            if (pieza == null || pieza.snapPosition == null) continue;
 
-            // Dispersa la pieza y habilita el arrastre
-            p.pieza.ReiniciarPieza(p.posDesarmada.position, p.posDesarmada.rotation);
+            pieza.ReiniciarPieza(PosicionAleatoriaEn(celdas[i], pieza.snapPosition.position, cam),
+                                 pieza.snapPosition.rotation);
 
             if (indicadores[i] != null)
             {
@@ -153,6 +166,59 @@ public class DisassemblyGame : MonoBehaviour
         }
 
         Debug.Log($"{name}: desarme iniciado con {piezas.Length} piezas y {puntosVisibles} puntos de destino.");
+    }
+
+    // Reparte la pantalla en celdas (mitad a cada lado del interruptor) y las
+    // baraja, para que cada pieza caiga en un lugar distinto en cada partida
+    // sin que dos piezas se amontonen.
+    private List<Rect> RepartirCeldas(int cantidad)
+    {
+        var celdas = new List<Rect>();
+        int enIzquierda = Mathf.CeilToInt(cantidad / 2f);
+
+        AgregarCeldasDeLado(celdas, enIzquierda, franjaIzquierda);
+        AgregarCeldasDeLado(celdas, cantidad - enIzquierda, franjaDerecha);
+
+        for (int i = celdas.Count - 1; i > 0; i--)
+        {
+            int j = Random.Range(0, i + 1);
+            (celdas[i], celdas[j]) = (celdas[j], celdas[i]);
+        }
+
+        return celdas;
+    }
+
+    private void AgregarCeldasDeLado(List<Rect> celdas, int cantidad, Vector2 franjaX)
+    {
+        if (cantidad <= 0) return;
+
+        int columnas = Mathf.Min(2, cantidad);
+        int filas = Mathf.CeilToInt(cantidad / (float)columnas);
+        float ancho = (franjaX.y - franjaX.x) / columnas;
+        float alto = (franjaVertical.y - franjaVertical.x) / filas;
+
+        for (int i = 0; i < cantidad; i++)
+        {
+            celdas.Add(new Rect(
+                franjaX.x + (i % columnas) * ancho,
+                franjaVertical.x + (i / columnas) * alto,
+                ancho, alto));
+        }
+    }
+
+    private Vector3 PosicionAleatoriaEn(Rect celda, Vector3 posicionDestino, Camera cam)
+    {
+        // Un margen dentro de la celda evita que dos piezas vecinas se toquen
+        float margenX = celda.width * 0.2f;
+        float margenY = celda.height * 0.2f;
+
+        float x = Random.Range(celda.xMin + margenX, celda.xMax - margenX);
+        float y = Random.Range(celda.yMin + margenY, celda.yMax - margenY);
+
+        // Conserva la profundidad de su destino: la pieza se ve del mismo
+        // tamaño que cuando está colocada.
+        float profundidad = cam.WorldToViewportPoint(posicionDestino).z;
+        return cam.ViewportToWorldPoint(new Vector3(x, y, profundidad));
     }
 
     private void MostrarObjetosOcultables(bool visibles)
