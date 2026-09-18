@@ -18,6 +18,7 @@ public class GameManager : MonoBehaviour
     public GameObject panelVictoria;      // Arrastra aquí el 'PanelVictoria'
     public GameObject panelSobrecarga;    // Arrastra aquí el 'PanelSobrecarga'
     public GameObject panelCortoCircuito; // Arrastra aquí el 'PanelCortoCircuito'
+    public GameObject panelUnirPiezas;    // Panel del botón que abre el juego de nombres
 
     [Header("Animación de Sobrecarga")]
     [Tooltip("Arrastra aquí el objeto que tiene el componente SwitchOverloadAnimator")]
@@ -33,24 +34,26 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
-        // Nos aseguramos de que los estados iniciales sean correctos
-        if (juegoUnirPiezas != null) juegoUnirPiezas.SetActive(true);
-        if (panelVictoria != null) panelVictoria.SetActive(false);
-        if (panelSobrecarga != null) panelSobrecarga.SetActive(false);
-        if (panelCortoCircuito != null) panelCortoCircuito.SetActive(false);
+        // El juego arranca en la pantalla de selección: el jugador elige etapa
+        VolverASeleccion();
     }
 
     public void AddScore()
     {
         score++;
-        if (scoreText != null)
-        {
-            scoreText.text = "Puntuación: " + score;
-        }
+        ActualizarScore();
 
         if (score >= piezasTotales)
         {
             GanarJuego();
+        }
+    }
+
+    private void ActualizarScore()
+    {
+        if (scoreText != null)
+        {
+            scoreText.text = "Puntuación: " + score;
         }
     }
 
@@ -63,34 +66,44 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // Esta función se ejecuta al presionar el botón "Siguiente etapa"
-    public void CambiarAlCanvasSobrecarga()
+    // Pantalla donde el jugador elige etapa. La usan el arranque del juego y el
+    // botón "Siguiente etapa" del panel de victoria.
+    public void VolverASeleccion()
     {
-        // 1. Apagamos TODO el primer juego de golpe usando el objeto padre
-        if (juegoUnirPiezas != null) 
+        if (juegoUnirPiezas != null) juegoUnirPiezas.SetActive(false);
+        if (panelVictoria != null) panelVictoria.SetActive(false);
+
+        MostrarSeleccion(true);
+    }
+
+    private void MostrarSeleccion(bool visible)
+    {
+        if (panelSobrecarga != null) panelSobrecarga.SetActive(visible);
+        if (panelCortoCircuito != null) panelCortoCircuito.SetActive(visible);
+        if (panelUnirPiezas != null) panelUnirPiezas.SetActive(visible);
+    }
+
+    // Botón que abre el juego de colocar los nombres sobre las piezas
+    public void PresionarBotonUnirPiezas()
+    {
+        MostrarSeleccion(false);
+        if (panelVictoria != null) panelVictoria.SetActive(false);
+
+        score = 0;
+        ActualizarScore();
+
+        if (juegoUnirPiezas != null)
         {
-            juegoUnirPiezas.SetActive(false);
+            juegoUnirPiezas.SetActive(true);
+
+            // Devolvemos las etiquetas a su lugar para poder volver a jugarlo
+            foreach (DragAndDrop etiqueta in juegoUnirPiezas.GetComponentsInChildren<DragAndDrop>(true))
+            {
+                etiqueta.ReiniciarEtiqueta();
+            }
         }
 
-        // 2. Apagamos el panel de victoria intermedio
-        if (panelVictoria != null) 
-        {
-            panelVictoria.SetActive(false);
-        }
-
-        // 3. Encendemos el nuevo juego/etapa de sobrecarga
-        if (panelSobrecarga != null)
-        {
-            panelSobrecarga.SetActive(true);
-        }
-
-        // 4. Encendemos también el panel de corto circuito
-        if (panelCortoCircuito != null)
-        {
-            panelCortoCircuito.SetActive(true);
-        }
-
-        Debug.Log("Cambio de etapa completado con éxito.");
+        Debug.Log("Iniciando juego de unir piezas...");
     }
 
     public void PresionarBotonSobrecarga()

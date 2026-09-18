@@ -159,9 +159,21 @@ public static class DisassemblyGameSetup
         manager.materialIndicador = ObtenerOCrearMaterialIndicador();
         manager.tamanoIndicador = tamanoPunto;
         manager.objetosAOcultar = RecolectarObjetosAOcultar(piezasEncontradas, piezasFijas);
-        manager.panelesSeleccion = RecolectarPanelesSeleccion();
 
         GameManager gameManager = Object.FindAnyObjectByType<GameManager>();
+
+        // Tercer botón de la pantalla de selección: abre el juego de nombres
+        if (gameManager != null && gameManager.panelUnirPiezas == null)
+        {
+            gameManager.panelUnirPiezas = CrearPanelUnirPiezas(gameManager);
+            EditorUtility.SetDirty(gameManager);
+        }
+
+        // El botón del panel de victoria ahora devuelve a la selección
+        ReconectarBotonVictoria(gameManager);
+
+        // Después de crear el panel nuevo, para que quede incluido
+        manager.panelesSeleccion = RecolectarPanelesSeleccion();
 
         if (manager.textoPuntaje == null)
         {
@@ -248,7 +260,7 @@ public static class DisassemblyGameSetup
     {
         var paneles = new List<GameObject>();
 
-        foreach (string nombrePanel in new[] { "PanelSobrecarga", "PanelCortoCircuito" })
+        foreach (string nombrePanel in new[] { "PanelSobrecarga", "PanelCortoCircuito", "PanelUnirPiezas" })
         {
             foreach (GameObject panel in ObjetosLlamados(nombrePanel))
             {
@@ -319,6 +331,74 @@ public static class DisassemblyGameSetup
         EditorUtility.SetDirty(destino);
     }
 
+    // Tercer botón de la pantalla de selección, debajo de "Sobrecarga" y
+    // siguiendo el mismo espaciado que hay entre los dos existentes.
+    private static GameObject CrearPanelUnirPiezas(GameManager gm)
+    {
+        Canvas canvas = Object.FindAnyObjectByType<Canvas>();
+        UnityEngine.UI.Button botonCorto = BuscarBotonEn("PanelCortoCircuito");
+        UnityEngine.UI.Button botonSobre = BuscarBotonEn("PanelSobrecarga");
+
+        if (canvas == null || botonCorto == null || botonSobre == null)
+        {
+            Debug.LogWarning("DisassemblyGameSetup: no encontré los botones existentes, no pude crear el botón del juego de nombres.");
+            return null;
+        }
+
+        var panel = new GameObject("PanelUnirPiezas", typeof(RectTransform));
+        Undo.RegisterCreatedObjectUndo(panel, "Crear PanelUnirPiezas");
+        panel.transform.SetParent(canvas.transform, worldPositionStays: false);
+
+        var panelRt = panel.GetComponent<RectTransform>();
+        panelRt.anchorMin = Vector2.zero;
+        panelRt.anchorMax = Vector2.one;
+        panelRt.offsetMin = Vector2.zero;
+        panelRt.offsetMax = Vector2.zero;
+
+        GameObject nuevo = Object.Instantiate(botonSobre.gameObject, panel.transform);
+        nuevo.name = "BotonUnirPiezas";
+
+        // Un paso más abajo, continuando la separación entre los dos botones
+        Vector3 paso = botonSobre.transform.position - botonCorto.transform.position;
+        nuevo.GetComponent<RectTransform>().position = botonSobre.transform.position + paso;
+
+        var etiqueta = nuevo.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+        if (etiqueta != null) etiqueta.text = "Colocar nombres";
+
+        var boton = nuevo.GetComponent<UnityEngine.UI.Button>();
+        LimpiarOnClick(boton);
+        UnityEditor.Events.UnityEventTools.AddPersistentListener(
+            boton.onClick, new UnityEngine.Events.UnityAction(gm.PresionarBotonUnirPiezas));
+
+        Debug.Log("DisassemblyGameSetup: se creó 'PanelUnirPiezas' con el botón del juego de nombres.");
+        return panel;
+    }
+
+    // El botón "Siguiente etapa" ya no salta a sobrecarga: vuelve al menú.
+    private static void ReconectarBotonVictoria(GameManager gm)
+    {
+        if (gm == null || gm.panelVictoria == null) return;
+
+        var boton = gm.panelVictoria.GetComponentInChildren<UnityEngine.UI.Button>(true);
+        if (boton == null)
+        {
+            Debug.LogWarning("DisassemblyGameSetup: no encontré el botón dentro de PanelVictoria, reconectalo a GameManager.VolverASeleccion a mano.");
+            return;
+        }
+
+        LimpiarOnClick(boton);
+        UnityEditor.Events.UnityEventTools.AddPersistentListener(
+            boton.onClick, new UnityEngine.Events.UnityAction(gm.VolverASeleccion));
+    }
+
+    private static void LimpiarOnClick(UnityEngine.UI.Button boton)
+    {
+        for (int i = boton.onClick.GetPersistentEventCount() - 1; i >= 0; i--)
+        {
+            UnityEditor.Events.UnityEventTools.RemovePersistentListener(boton.onClick, i);
+        }
+    }
+
     // Copia uno de los botones existentes y lo ubica justo entre los dos, para
     // que se vea igual que el resto de la interfaz.
     private static GameObject CrearBotonContinuar(DisassemblyGame manager)
@@ -345,10 +425,7 @@ public static class DisassemblyGameSetup
         if (etiqueta != null) etiqueta.text = "Continuar";
 
         var boton = nuevo.GetComponent<UnityEngine.UI.Button>();
-        for (int i = boton.onClick.GetPersistentEventCount() - 1; i >= 0; i--)
-        {
-            UnityEditor.Events.UnityEventTools.RemovePersistentListener(boton.onClick, i);
-        }
+        LimpiarOnClick(boton);
         UnityEditor.Events.UnityEventTools.AddPersistentListener(
             boton.onClick, new UnityEngine.Events.UnityAction(manager.VolverASeleccion));
 

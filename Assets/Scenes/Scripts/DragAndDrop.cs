@@ -29,6 +29,20 @@ public class DragAndDrop : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
         gameManager = Object.FindAnyObjectByType<GameManager>();
     }
 
+    // Devuelve la etiqueta a su lugar de origen para poder volver a jugar
+    public void ReiniciarEtiqueta()
+    {
+        yaColocada = false;
+        this.enabled = true;
+        rectTransform.anchoredPosition = initialPosition;
+
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 1f;
+            canvasGroup.blocksRaycasts = true;
+        }
+    }
+
     public void OnBeginDrag(PointerEventData eventData)
     {
         if (yaColocada) return; // Si ya se colocó correctamente, no permitir moverla
