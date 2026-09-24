@@ -303,7 +303,8 @@ public class DisassemblyGame : MonoBehaviour
     {
         if (!juegoIniciado) return;
 
-        puntaje -= puntosPorError;
+        // El puntaje nunca baja de 0: un error no puede dejar al jugador en negativo.
+        puntaje = Mathf.Max(puntaje - puntosPorError, 0);
         ActualizarTextoPuntaje();
     }
 
@@ -311,7 +312,7 @@ public class DisassemblyGame : MonoBehaviour
     {
         if (textoPuntaje != null)
         {
-            textoPuntaje.text = $"Puntuación: {puntaje}";
+            textoPuntaje.text = $"Puntuación: {puntaje}/{piezas.Length * puntosPorAcierto}";
         }
     }
 

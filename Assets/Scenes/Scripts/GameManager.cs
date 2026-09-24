@@ -6,6 +6,10 @@ public class GameManager : MonoBehaviour
     public TextMeshProUGUI scoreText; // Asigna tu ScoreText aquí
     private int score = 0;
 
+    // Piezas colocadas correctamente, sin importar los puntos perdidos por
+    // error: determina cuándo termina el juego, separado del puntaje.
+    private int piezasColocadas = 0;
+
     [Header("Configuración del Juego")]
     [Tooltip("Cantidad total de etiquetas a colocar")]
     public int piezasTotales = 4; 
@@ -40,20 +44,31 @@ public class GameManager : MonoBehaviour
 
     public void AddScore()
     {
-        score++;
+        score = Mathf.Min(score + 1, piezasTotales);
+        piezasColocadas++;
         ActualizarScore();
 
-        if (score >= piezasTotales)
+        // El juego termina al colocar todas las piezas, gane o no el puntaje
+        // máximo: los errores restan puntos pero no impiden terminar la partida.
+        if (piezasColocadas >= piezasTotales)
         {
             GanarJuego();
         }
+    }
+
+    // La llama una etiqueta al soltarse sobre el destino de OTRA etiqueta. El
+    // puntaje nunca baja de 0: un error no puede dejar al jugador en negativo.
+    public void PerderPunto()
+    {
+        score = Mathf.Max(score - 1, 0);
+        ActualizarScore();
     }
 
     private void ActualizarScore()
     {
         if (scoreText != null)
         {
-            scoreText.text = "Puntuación: " + score;
+            scoreText.text = $"Puntos: {score}/{piezasTotales}";
         }
     }
 
@@ -90,6 +105,7 @@ public class GameManager : MonoBehaviour
         if (panelVictoria != null) panelVictoria.SetActive(false);
 
         score = 0;
+        piezasColocadas = 0;
         ActualizarScore();
 
         if (juegoUnirPiezas != null)

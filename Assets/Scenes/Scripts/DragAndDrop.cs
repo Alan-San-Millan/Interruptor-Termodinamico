@@ -10,13 +10,18 @@ public class DragAndDrop : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
 
     [Header("Configuración de Destino (UI)")]
     [Tooltip("Arrastra aquí el cuadro blanco vacío que corresponde a esta pieza")]
-    public RectTransform cuadroDestino; 
-    
+    public RectTransform cuadroDestino;
+
     [Tooltip("Sensibilidad: qué tan cerca debe estar para que se pegue automáticamente")]
     public float distanciaAceptable = 50f;
 
     private GameManager gameManager;
     private bool yaColocada = false;
+
+    // Destinos del resto de las etiquetas, para distinguir "la solté sobre el
+    // hueco de otra pieza" (error real) de "la moví y la solté en cualquier
+    // lado" (no debería costar puntos).
+    private RectTransform[] otrosDestinos;
 
     void Awake()
     {
@@ -24,9 +29,20 @@ public class DragAndDrop : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
         canvasGroup = GetComponent<CanvasGroup>();
         initialPosition = rectTransform.anchoredPosition; // Guardamos posición original
         parentCanvas = GetComponentInParent<Canvas>();
-        
+
         // Buscamos el GameManager en la escena
         gameManager = Object.FindAnyObjectByType<GameManager>();
+
+        DragAndDrop[] todasLasEtiquetas = Object.FindObjectsByType<DragAndDrop>(FindObjectsSortMode.None);
+        var destinos = new System.Collections.Generic.List<RectTransform>();
+        foreach (DragAndDrop etiqueta in todasLasEtiquetas)
+        {
+            if (etiqueta != this && etiqueta.cuadroDestino != null)
+            {
+                destinos.Add(etiqueta.cuadroDestino);
+            }
+        }
+        otrosDestinos = destinos.ToArray();
     }
 
     // Devuelve la etiqueta a su lugar de origen para poder volver a jugar
@@ -93,8 +109,38 @@ public class DragAndDrop : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
             }
         }
         
-        // Si no se soltó en el lugar correcto, regresa a la posición inicial[cite: 3]
-        Debug.Log("Incorrecto, volviendo al inicio.");
+        // Solo se penaliza si la soltó sobre el hueco de OTRA etiqueta: si la
+        // soltó en cualquier otro lado puede haberla movido sin querer.
+        if (EstaSobreOtroDestino())
+        {
+            Debug.Log("Incorrecto: ahí va otra etiqueta. Se pierde un punto.");
+            if (gameManager != null)
+            {
+                gameManager.PerderPunto();
+            }
+        }
+        else
+        {
+            Debug.Log("La soltó sin intentar colocarla, vuelve al inicio sin penalización.");
+        }
+
         rectTransform.anchoredPosition = initialPosition;
+    }
+
+    private bool EstaSobreOtroDestino()
+    {
+        if (otrosDestinos == null) return false;
+
+        foreach (RectTransform destino in otrosDestinos)
+        {
+            if (destino == null) continue;
+
+            if (Vector3.Distance(rectTransform.position, destino.position) < distanciaAceptable)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
