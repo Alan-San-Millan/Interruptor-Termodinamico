@@ -26,9 +26,6 @@ public class DisassemblyGame : MonoBehaviour
              "estado en el que estaba cuando se vuelve a la pantalla de selección.")]
     public GameObject[] objetosAOcultar;
 
-    [Tooltip("Paneles con los botones de elegir etapa. Se ocultan al jugar y se " +
-             "vuelven a mostrar siempre al terminar.")]
-    public GameObject[] panelesSeleccion;
 
     [Header("Puntaje")]
     [Tooltip("Texto donde se muestra el puntaje de esta etapa")]
@@ -54,6 +51,7 @@ public class DisassemblyGame : MonoBehaviour
     [Tooltip("Diámetro del punto, en unidades del mundo")]
     public float tamanoIndicador = 0.25f;
 
+    private GameManager gameManager;
     private GameObject[] indicadores;
     private bool[] estabanVisibles;
     private int piezasColocadas = 0;
@@ -62,6 +60,7 @@ public class DisassemblyGame : MonoBehaviour
 
     void Awake()
     {
+        gameManager = Object.FindAnyObjectByType<GameManager>();
         indicadores = new GameObject[piezas.Length];
 
         // El marcador y el botón de continuar recién aparecen cuando toca
@@ -157,7 +156,7 @@ public class DisassemblyGame : MonoBehaviour
 
         // Vaciamos la carcasa y sacamos los botones de la pantalla
         MostrarObjetosOcultables(false);
-        MostrarPanelesSeleccion(false);
+        if (gameManager != null) gameManager.MostrarSeleccion(false);
 
         piezasColocadas = 0;
         puntaje = 0;
@@ -271,22 +270,14 @@ public class DisassemblyGame : MonoBehaviour
         }
     }
 
-    private void MostrarPanelesSeleccion(bool visibles)
-    {
-        // Estos siempre se muestran al volver, sin mirar su estado inicial: en
-        // la escena arrancan apagados porque la primera etapa es otra.
-        for (int i = 0; i < panelesSeleccion.Length; i++)
-        {
-            if (panelesSeleccion[i] != null) panelesSeleccion[i].SetActive(visibles);
-        }
-    }
-
     private void RegistrarPiezaColocada(int indice)
     {
         if (!juegoIniciado) return;
 
         piezasColocadas++;
-        puntaje += puntosPorAcierto;
+        // El puntaje no pasa del máximo ni baja de 0, así se puede mostrar
+        // siempre como "obtenido/total".
+        puntaje = Mathf.Min(puntaje + puntosPorAcierto, PuntajeMaximo);
         ActualizarTextoPuntaje();
 
         if (indicadores[indice] != null) indicadores[indice].SetActive(false);
@@ -308,17 +299,20 @@ public class DisassemblyGame : MonoBehaviour
         ActualizarTextoPuntaje();
     }
 
+    private int PuntajeMaximo => piezas.Length * puntosPorAcierto;
+
     private void ActualizarTextoPuntaje()
     {
         if (textoPuntaje != null)
         {
-            textoPuntaje.text = $"Puntuación: {puntaje}/{piezas.Length * puntosPorAcierto}";
+            textoPuntaje.text = $"Puntuación: {puntaje}/{PuntajeMaximo}";
         }
     }
 
     private void Completar()
     {
         juegoIniciado = false;
+        Puntajes.Guardar(Puntajes.Desarme, puntaje, PuntajeMaximo);
 
         Debug.Log($"{name}: ¡modelo reensamblado correctamente! Puntaje final: {puntaje}");
 
@@ -339,6 +333,6 @@ public class DisassemblyGame : MonoBehaviour
         // El interruptor vuelve a estar completo y el jugador queda otra vez
         // en la pantalla donde elige entre el juego y la animación.
         MostrarObjetosOcultables(true);
-        MostrarPanelesSeleccion(true);
+        if (gameManager != null) gameManager.VolverASeleccion();
     }
 }

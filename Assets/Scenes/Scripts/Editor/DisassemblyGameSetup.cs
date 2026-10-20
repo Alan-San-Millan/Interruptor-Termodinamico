@@ -172,8 +172,12 @@ public static class DisassemblyGameSetup
         // El botón del panel de victoria ahora devuelve a la selección
         ReconectarBotonVictoria(gameManager);
 
-        // Después de crear el panel nuevo, para que quede incluido
-        manager.panelesSeleccion = RecolectarPanelesSeleccion();
+        // Tabla con el resultado guardado de cada minijuego
+        if (gameManager != null && gameManager.textoPuntajesGuardados == null)
+        {
+            gameManager.textoPuntajesGuardados = CrearTablaPuntajes(gameManager);
+            EditorUtility.SetDirty(gameManager);
+        }
 
         if (manager.textoPuntaje == null)
         {
@@ -253,22 +257,35 @@ public static class DisassemblyGameSetup
         return aOcultar.ToArray();
     }
 
-    // Los paneles con los botones de elegir etapa: se ocultan al jugar y se
-    // muestran al volver. Van aparte del mecanismo porque en la escena
-    // arrancan apagados y aun así hay que encenderlos al terminar.
-    private static GameObject[] RecolectarPanelesSeleccion()
+    // Texto del menú con el resultado guardado de cada minijuego
+    private static TMPro.TextMeshProUGUI CrearTablaPuntajes(GameManager gm)
     {
-        var paneles = new List<GameObject>();
-
-        foreach (string nombrePanel in new[] { "PanelSobrecarga", "PanelCortoCircuito", "PanelUnirPiezas" })
+        Canvas canvas = Object.FindAnyObjectByType<Canvas>();
+        if (canvas == null)
         {
-            foreach (GameObject panel in ObjetosLlamados(nombrePanel))
-            {
-                if (!paneles.Contains(panel)) paneles.Add(panel);
-            }
+            Debug.LogWarning("DisassemblyGameSetup: no hay Canvas en la escena, no pude crear la tabla de puntajes.");
+            return null;
         }
 
-        return paneles.ToArray();
+        var go = new GameObject("TablaPuntajes", typeof(RectTransform));
+        Undo.RegisterCreatedObjectUndo(go, "Crear TablaPuntajes");
+        go.transform.SetParent(canvas.transform, worldPositionStays: false);
+
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0f, 1f);
+        rt.anchoredPosition = new Vector2(20f, -20f);
+        rt.sizeDelta = new Vector2(600f, 140f);
+
+        var texto = go.AddComponent<TMPro.TextMeshProUGUI>();
+        texto.text = "Desarmado de interruptor: sin jugar\nUnir piezas: sin jugar";
+        texto.fontSize = gm != null && gm.scoreText != null ? gm.scoreText.fontSize : 28f;
+        texto.alignment = TMPro.TextAlignmentOptions.TopLeft;
+        texto.raycastTarget = false; // que no se robe los clicks
+
+        Debug.Log("DisassemblyGameSetup: se creó 'TablaPuntajes' en el Canvas.");
+        return texto;
     }
 
     private static bool TieneAncestroEn(Transform t, HashSet<Transform> raices)

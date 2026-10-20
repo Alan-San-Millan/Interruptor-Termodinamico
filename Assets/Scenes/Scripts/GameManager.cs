@@ -24,6 +24,10 @@ public class GameManager : MonoBehaviour
     public GameObject panelCortoCircuito; // Arrastra aquí el 'PanelCortoCircuito'
     public GameObject panelUnirPiezas;    // Panel del botón que abre el juego de nombres
 
+    [Header("Resultados guardados")]
+    [Tooltip("Texto del menú donde se listan los puntajes de cada minijuego")]
+    public TextMeshProUGUI textoPuntajesGuardados;
+
     [Header("Animación de Sobrecarga")]
     [Tooltip("Arrastra aquí el objeto que tiene el componente SwitchOverloadAnimator")]
     public SwitchOverloadAnimator overloadAnimator;
@@ -75,6 +79,8 @@ public class GameManager : MonoBehaviour
     private void GanarJuego()
     {
         Debug.Log("¡Todas las piezas colocadas!");
+        Puntajes.Guardar(Puntajes.UnirPiezas, score, piezasTotales);
+
         if (panelVictoria != null)
         {
             panelVictoria.SetActive(true);
@@ -91,11 +97,32 @@ public class GameManager : MonoBehaviour
         MostrarSeleccion(true);
     }
 
-    private void MostrarSeleccion(bool visible)
+    // La usa también el juego de desarme para sacar el menú de la pantalla
+    public void MostrarSeleccion(bool visible)
     {
         if (panelSobrecarga != null) panelSobrecarga.SetActive(visible);
         if (panelCortoCircuito != null) panelCortoCircuito.SetActive(visible);
         if (panelUnirPiezas != null) panelUnirPiezas.SetActive(visible);
+
+        if (textoPuntajesGuardados != null)
+        {
+            textoPuntajesGuardados.gameObject.SetActive(visible);
+            if (visible) ActualizarTablaDePuntajes();
+        }
+    }
+
+    private void ActualizarTablaDePuntajes()
+    {
+        textoPuntajesGuardados.text =
+            LineaDePuntaje("Desarmado de interruptor", Puntajes.Desarme) + "\n" +
+            LineaDePuntaje("Unir piezas", Puntajes.UnirPiezas);
+    }
+
+    private string LineaDePuntaje(string titulo, string juego)
+    {
+        return Puntajes.TieneResultado(juego)
+            ? $"{titulo}: {Puntajes.Puntaje(juego)}/{Puntajes.Maximo(juego)}"
+            : $"{titulo}: sin jugar";
     }
 
     // Botón que abre el juego de colocar los nombres sobre las piezas
