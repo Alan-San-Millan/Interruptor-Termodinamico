@@ -4920,7 +4920,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 100, y: -6.447815}
+  m_AnchoredPosition: {x: 100, y: -29.570389}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1449778529
@@ -5753,6 +5753,8 @@ MonoBehaviour:
   panelCortoCircuito: {fileID: 8697292}
   panelUnirPiezas: {fileID: 900000001}
   textoPuntajesGuardados: {fileID: 547779457}
+  tamanoTextoPuntajes: 18
+  reiniciarPuntajesAlIniciar: 1
   overloadAnimator: {fileID: 955439735}
   shortCircuitAnimator: {fileID: 1908400819}
   disassemblyGame: {fileID: 1513012017}

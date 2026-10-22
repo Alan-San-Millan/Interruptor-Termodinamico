@@ -28,6 +28,13 @@ public class GameManager : MonoBehaviour
     [Tooltip("Texto del menú donde se listan los puntajes de cada minijuego")]
     public TextMeshProUGUI textoPuntajesGuardados;
 
+    [Tooltip("Tamaño de la letra de la tabla de puntajes del menú")]
+    public float tamanoTextoPuntajes = 18f;
+
+    [Tooltip("Si está activo, los puntajes guardados se borran cada vez que se inicia " +
+             "el juego. Desactivalo cuando quieras que se conserven entre sesiones.")]
+    public bool reiniciarPuntajesAlIniciar = true;
+
     [Header("Animación de Sobrecarga")]
     [Tooltip("Arrastra aquí el objeto que tiene el componente SwitchOverloadAnimator")]
     public SwitchOverloadAnimator overloadAnimator;
@@ -42,6 +49,8 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
+        if (reiniciarPuntajesAlIniciar) Puntajes.BorrarTodo();
+
         // El juego arranca en la pantalla de selección: el jugador elige etapa
         VolverASeleccion();
     }
@@ -113,6 +122,8 @@ public class GameManager : MonoBehaviour
 
     private void ActualizarTablaDePuntajes()
     {
+        textoPuntajesGuardados.enableAutoSizing = false;
+        textoPuntajesGuardados.fontSize = tamanoTextoPuntajes;
         textoPuntajesGuardados.text =
             LineaDePuntaje("Desarmado de interruptor", Puntajes.Desarme) + "\n" +
             LineaDePuntaje("Unir piezas", Puntajes.UnirPiezas);
